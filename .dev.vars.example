@@ -1,0 +1,4 @@
+# Token bot dari @BotFather
+BOT_TOKEN=
+# Password halaman /setup (tentukan sendiri, minimal 12 karakter)
+SETUP_KEY=

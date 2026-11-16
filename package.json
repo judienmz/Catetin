@@ -1,0 +1,27 @@
+{
+  "name": "finbot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build && wrangler dev",
+    "dev:miniapp": "vite --config miniapp/vite.config.ts",
+    "build": "vite build --config miniapp/vite.config.ts",
+    "deploy": "npm run build && wrangler deploy",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p miniapp",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "grammy": "^1.46.0",
+    "hono": "^4.13.19",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.8.3",
+    "@cloudflare/workers-types": "^5.20261116.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.8",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.163.0"
+  }
+}
