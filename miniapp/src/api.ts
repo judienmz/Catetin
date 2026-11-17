@@ -92,6 +92,7 @@ export interface Product {
   sell_price: number;
   cost_price?: number;
   stock: number;
+  min_stock: number;
   track_stock: number;
 }
 
@@ -256,8 +257,15 @@ export const api = {
   voidSale: (id: number, reason?: string) => req<Sale>("POST", `/sales/${id}/void`, { reason }),
 
   products: (q?: string) => req<Product[]>("GET", `/products${qs({ q })}`),
-  createProduct: (b: { name: string; cost_price: number; sell_price: number }) => req<Product>("POST", "/products", b),
-  updateProduct: (id: number, b: { name?: string; cost_price?: number; sell_price?: number }) => req<Product>("PATCH", `/products/${id}`, b),
+  createProduct: (b: ProductInput & { opening_stock?: number }) => req<Product>("POST", "/products", b),
+  updateProduct: (id: number, b: Partial<ProductInput>) => req<Product>("PATCH", `/products/${id}`, b),
+  setStock: (id: number, actual: number, note: string | null) => req<{ product: Product; change: number }>("POST", `/products/${id}/stock`, { actual, note }),
+  movements: (id: number) => req<StockMovement[]>("GET", `/products/${id}/movements`),
+  purchases: (q: { from: string; to: string; page?: number }) => req<Page<PurchaseRow>>("GET", `/purchases${qs(q)}`),
+  getPurchase: (id: number) => req<PurchaseDetail>("GET", `/purchases/${id}`),
+  createPurchase: (b: { uid: string; tanggal: string; supplier: string | null; items: { product_id: number; qty: number; unit_cost: number }[]; account_id: number; update_cost: UpdateCost; note: string | null }) =>
+    req<PurchaseDetail>("POST", "/purchases", b),
+  voidPurchase: (id: number) => req<PurchaseDetail>("POST", `/purchases/${id}/void`, {}),
 
   profitLoss: (from: string, to: string) => req<ProfitLoss>("GET", `/reports/profit-loss${qs({ from, to })}`),
   cashflow: (from: string, to: string) => req<CashFlow>("GET", `/reports/cashflow${qs({ from, to })}`),
@@ -288,6 +296,7 @@ export interface AppSettings {
   monthly_report_enabled: boolean;
   report_hour: number;
   report_target: { type: "owner" | "group"; chatId: number | null; title: string | null };
+  feature_stock: boolean;
 }
 
 export interface UserRow {
@@ -299,3 +308,43 @@ export interface UserRow {
   is_active: number;
 }
 
+
+export interface ProductInput {
+  name: string;
+  cost_price: number;
+  sell_price: number;
+  unit?: string;
+  track_stock?: boolean;
+  min_stock?: number;
+}
+
+export type UpdateCost = "average" | "last" | "none";
+
+export interface StockMovement {
+  id: number;
+  tanggal: string;
+  type: "sale" | "sale_void" | "purchase" | "purchase_void" | "adjustment" | "opening";
+  qty_change: number;
+  note: string | null;
+  created_by_name: string | null;
+}
+
+export interface PurchaseRow {
+  id: number;
+  tanggal: string;
+  supplier: string | null;
+  total: number;
+  status: "posted" | "void";
+  account_name: string | null;
+  item_count: number;
+  first_item: string | null;
+}
+
+export interface PurchaseDetail extends PurchaseRow {
+  update_cost: UpdateCost;
+  note: string | null;
+  void_reason: string | null;
+  items: { id: number; product_id: number; product_name: string; qty: number; unit_cost?: number; line_total: number }[];
+  hppChanges?: { product_id: number; name: string; before: number; after: number }[];
+  warnings: string[];
+}

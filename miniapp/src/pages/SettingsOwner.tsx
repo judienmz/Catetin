@@ -64,6 +64,13 @@ function BusinessAndReports({ settings }: { settings: AppSettings }) {
     <>
       <Section title="Usaha">
         <Row left="Nama usaha" right={settings.business_name} onClick={() => openBusinessName(app, settings.business_name)} />
+        <Toggle
+          label="Modul stok"
+          sub="Stok berkurang saat terjual, restock dengan HPP rata-rata, peringatan stok menipis"
+          on={settings.feature_stock}
+          disabled={busy}
+          onChange={(v) => save({ feature_stock: v }, v ? "Modul stok aktif. Isi stok awal lewat Produk → Stok → Stok opname." : "Modul stok dimatikan (data stok tetap tersimpan)")}
+        />
       </Section>
 
       <Section title="Laporan otomatis">

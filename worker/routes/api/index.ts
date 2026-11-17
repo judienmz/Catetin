@@ -5,10 +5,10 @@ import { AppError } from "../../lib/errors";
 import { wibDate } from "../../lib/date";
 import { validateInitData } from "../../auth/initData";
 import { issueSession } from "../../auth/session";
-import { InviteBody, SettingsPatchBody, UserPatchBody, AccountCreateBody, AccountPatchBody, AuthBody, CategoryCreateBody, CategoryPatchBody, ChannelBody, CashCreateBody, CashListQuery, ListQuery, PeriodQuery, ProductCreateBody, ProductPatchBody, SaleCreateBody, TransferBody, VoidBody } from "../../../shared/schemas";
+import { InviteBody, PurchaseCreateBody, SettingsPatchBody, StockSetBody, UserPatchBody, AccountCreateBody, AccountPatchBody, AuthBody, CategoryCreateBody, CategoryPatchBody, ChannelBody, CashCreateBody, CashListQuery, ListQuery, PeriodQuery, ProductCreateBody, ProductPatchBody, SaleCreateBody, TransferBody, VoidBody } from "../../../shared/schemas";
 import { getAppSettings, getSessionSecret, getSetting, updateAppSettings, type SettingsPatch } from "../../services/settings";
 import { createInvite, findActiveUser, listUsers, updateUser } from "../../services/users";
-import { getFeatures } from "../../services/features";
+import { getFeatures, requireStock } from "../../services/features";
 import {
   accountBalances,
   createCashTransaction,
@@ -22,6 +22,9 @@ import { createSale, getSale, listSales, voidSale } from "../../services/sales";
 import { createProduct, listProducts, updateProduct } from "../../services/products";
 import { cashflow, daily, itemsSold, profitLoss, summary } from "../../services/reports";
 import { sendExport } from "../../bot/commands/reports";
+import { botCommands } from "../../bot/commands/list";
+import { listMovements, lowStock, setStockCount } from "../../services/stock";
+import { createPurchase, getPurchase, listPurchases, voidPurchase } from "../../services/purchases";
 import { addAccount, createCategory, createChannel, deleteAccount, deleteCategory, deleteChannel, listChannels, updateAccount, updateCategory, updateChannel } from "../../services/masters";
 import { ok, parseBody, parseQuery, requireAdmin, requireOwner, requireSession, resolvePeriod, telegramApi, type ApiEnv } from "./util";
 
@@ -167,7 +170,24 @@ api.get("/products", async (c) => {
 api.post("/products", async (c) => {
   requireAdmin(c);
   const b = await parseBody(c, ProductCreateBody);
-  return ok(c, await createProduct(c.env.DB, { name: b.name, costPrice: b.cost_price, sellPrice: b.sell_price, unit: b.unit, sku: b.sku ?? null }, c.var.actor), 201);
+  let p = await createProduct(
+    c.env.DB,
+    {
+      name: b.name,
+      costPrice: b.cost_price,
+      sellPrice: b.sell_price,
+      unit: b.unit,
+      sku: b.sku ?? null,
+      ...(b.track_stock !== undefined ? { trackStock: b.track_stock } : {}),
+      ...(b.min_stock !== undefined ? { minStock: b.min_stock } : {}),
+    },
+    c.var.actor,
+  );
+  // Stok awal → mutasi 'opening' (hanya bila modul stok aktif & produk dilacak).
+  if (b.opening_stock && p.track_stock && (await getFeatures(c.env.DB)).stock) {
+    p = (await setStockCount(c.env.DB, p.id, b.opening_stock, { tanggal: wibDate(), note: "Stok awal" }, c.var.actor)).product;
+  }
+  return ok(c, p, 201);
 });
 
 api.patch("/products/:id", async (c) => {
@@ -182,10 +202,71 @@ api.patch("/products/:id", async (c) => {
         ...(b.name !== undefined ? { name: b.name } : {}),
         ...(b.cost_price !== undefined ? { costPrice: b.cost_price } : {}),
         ...(b.sell_price !== undefined ? { sellPrice: b.sell_price } : {}),
+        ...(b.unit !== undefined ? { unit: b.unit } : {}),
+        ...(b.track_stock !== undefined ? { trackStock: b.track_stock } : {}),
+        ...(b.min_stock !== undefined ? { minStock: b.min_stock } : {}),
       },
       c.var.actor,
     ),
   );
+});
+
+// --- Modul stok ----------------------------------------------------------------
+
+api.post("/products/:id/stock", async (c) => {
+  const b = await parseBody(c, StockSetBody);
+  return ok(c, await setStockCount(c.env.DB, Number(c.req.param("id")), b.actual, { tanggal: b.tanggal ?? wibDate(), note: b.note ?? null }, c.var.actor));
+});
+
+api.get("/products/:id/movements", async (c) => {
+  requireAdmin(c);
+  return ok(c, await listMovements(c.env.DB, Number(c.req.param("id"))));
+});
+
+api.get("/stock/low", async (c) => {
+  await requireStock(c.env.DB);
+  return ok(c, await lowStock(c.env.DB));
+});
+
+api.get("/purchases", async (c) => {
+  requireAdmin(c);
+  await requireStock(c.env.DB);
+  const q = parseQuery(c, ListQuery);
+  return ok(c, await listPurchases(c.env.DB, { ...ymdRange(q), page: q.page, limit: q.limit }));
+});
+
+api.get("/purchases/:id", async (c) => {
+  requireAdmin(c);
+  const p = await getPurchase(c.env.DB, Number(c.req.param("id")));
+  if (!p) throw new AppError("NOT_FOUND", "Pembelian tidak ditemukan.", 404);
+  return ok(c, p);
+});
+
+api.post("/purchases", async (c) => {
+  const b = await parseBody(c, PurchaseCreateBody);
+  return ok(
+    c,
+    await createPurchase(
+      c.env.DB,
+      {
+        uid: b.uid,
+        tanggal: b.tanggal,
+        supplier: b.supplier ?? null,
+        items: b.items.map((i) => ({ productId: i.product_id, qty: i.qty, unitCost: i.unit_cost })),
+        accountId: b.account_id,
+        updateCost: b.update_cost ?? "average",
+        note: b.note ?? null,
+        source: "miniapp",
+      },
+      c.var.actor,
+    ),
+    201,
+  );
+});
+
+api.post("/purchases/:id/void", async (c) => {
+  const b = await parseBody(c, VoidBody);
+  return ok(c, await voidPurchase(c.env.DB, Number(c.req.param("id")), b.reason ?? "Dibatalkan lewat aplikasi", c.var.actor, { voidDate: wibDate() }));
 });
 
 // --- Laporan -----------------------------------------------------------------
@@ -305,7 +386,15 @@ api.patch("/settings", async (c) => {
   if (b.monthly_report_enabled !== undefined) patch.monthly_report_enabled = b.monthly_report_enabled;
   if (b.report_hour !== undefined) patch.report_hour = b.report_hour;
   if (b.report_target !== undefined) patch.report_target = b.report_target;
-  return ok(c, await updateAppSettings(c.env.DB, patch, c.var.actor));
+  if (b.feature_stock !== undefined) patch.feature_stock = b.feature_stock;
+  const s = await updateAppSettings(c.env.DB, patch, c.var.actor);
+  if (b.feature_stock !== undefined) {
+    // Menu perintah bot ikut berubah (/stok & /restock). Gagal = tidak fatal; /setup juga memasangnya.
+    await telegramApi(c.env)
+      .setMyCommands(botCommands({ featureStock: s.feature_stock }))
+      .catch((e: unknown) => console.warn("setMyCommands gagal", e));
+  }
+  return ok(c, s);
 });
 
 api.get("/users", async (c) => {

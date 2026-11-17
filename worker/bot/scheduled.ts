@@ -3,6 +3,7 @@
  *  - harian  : ringkasan hari ini
  *  - Senin   : ringkasan minggu lalu + perbandingan dengan minggu sebelumnya
  *  - tanggal 1: ringkasan bulan lalu + perbandingan + file PDF ke owner
+ *  - modul stok aktif: peringatan stok menipis ke owner (maks 1x/hari)
  * Tiap jenis laporan "diklaim" dulu lewat settings.last_<jenis>_report_date sehingga
  * tidak pernah terkirim dua kali di hari yang sama, walau cron terpanggil ulang.
  */
@@ -13,12 +14,14 @@ import { getAppSettings } from "../services/settings";
 import { profitLoss } from "../services/reports";
 import { buildPdfReport } from "../services/pdfReport";
 import { cleanup } from "../services/maintenance";
+import { getFeatures } from "../services/features";
+import { lowStock } from "../services/stock";
 import { buildReport } from "./commands/reports";
 import { html, rupiah } from "./format";
 
-export type ReportKind = "daily" | "weekly" | "monthly";
+export type ReportKind = "daily" | "weekly" | "monthly" | "lowstock";
 
-const TITLE: Record<ReportKind, string> = {
+const TITLE: Record<Exclude<ReportKind, "lowstock">, string> = {
   daily: "🗓 <b>Laporan harian otomatis</b>",
   weekly: "🗓 <b>Laporan mingguan otomatis</b>",
   monthly: "🗓 <b>Laporan bulanan otomatis</b>",
@@ -66,7 +69,7 @@ export async function runScheduled(env: Env, api: Api, now: Date = new Date()): 
   const withCost = s.report_target.type === "owner";
 
   const today = wibDate(now);
-  const jobs: { kind: ReportKind; period: Period; prev?: { from: string; to: string }; prevLabel?: string }[] = [];
+  const jobs: { kind: Exclude<ReportKind, "lowstock">; period: Period; prev?: { from: string; to: string }; prevLabel?: string }[] = [];
   if (s.daily_report_enabled) jobs.push({ kind: "daily", period: periodRange("hari", now) });
   if (s.weekly_report_enabled && wibIsoWeekday(now) === 1) {
     const p = periodRange("minggulalu", now);
@@ -96,6 +99,20 @@ export async function runScheduled(env: Env, api: Api, now: Date = new Date()): 
     } catch (e) {
       // Klaim tetap tercatat supaya tidak spam; kegagalan dicatat di log Worker.
       console.error(`laporan ${job.kind} gagal dikirim`, e);
+    }
+  }
+  // Peringatan stok menipis (maks 1x/hari) → selalu ke chat pribadi owner.
+  if ((await getFeatures(db)).stock) {
+    const low = await lowStock(db, 30);
+    if (low.length && (await claim(db, "lowstock", today))) {
+      try {
+        const lines = low.map((p) => `• ${html(p.name)}: <b>${p.stock}</b> ${html(p.unit)}${p.stock <= 0 ? " (habis)" : ` (min ${p.min_stock})`}`);
+        const text = [`📦 <b>Stok menipis</b> · ${low.length} produk`, ...lines, "", "Catat restock: /restock &lt;produk&gt; &lt;qty&gt; &lt;harga beli&gt;"].join("\n");
+        await api.sendMessage(owner.telegram_id, text, { parse_mode: "HTML" });
+        sent.push("lowstock");
+      } catch (e) {
+        console.error("peringatan stok gagal dikirim", e);
+      }
     }
   }
   return { sent, skipped: null };

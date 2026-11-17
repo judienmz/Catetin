@@ -59,12 +59,18 @@ export const SaleCreateBody = z.object({
   note,
 });
 
+const qty = z.int().min(0).max(1_000_000_000);
+
 export const ProductCreateBody = z.object({
   name: z.string().trim().min(1).max(80),
   cost_price: money,
   sell_price: money,
   unit: z.string().trim().max(20).optional(),
   sku: z.string().trim().max(40).nullish(),
+  track_stock: z.boolean().optional(),
+  min_stock: qty.optional(),
+  /** Stok awal (hanya dipakai bila modul stok aktif). */
+  opening_stock: qty.optional(),
 });
 
 export const ProductPatchBody = z
@@ -72,8 +78,11 @@ export const ProductPatchBody = z
     name: z.string().trim().min(1).max(80).optional(),
     cost_price: money.optional(),
     sell_price: money.optional(),
+    unit: z.string().trim().max(20).optional(),
+    track_stock: z.boolean().optional(),
+    min_stock: qty.optional(),
   })
-  .refine((v) => v.name !== undefined || v.cost_price !== undefined || v.sell_price !== undefined, "Tidak ada perubahan");
+  .refine((v) => Object.values(v).some((x) => x !== undefined), "Tidak ada perubahan");
 
 /** Query periode laporan: `period` (kode/teks) ATAU `from` & `to`. */
 export const PeriodQuery = z.object({
@@ -139,6 +148,7 @@ export const SettingsPatchBody = z.object({
   monthly_report_enabled: z.boolean().optional(),
   report_hour: z.int().min(0).max(23).optional(),
   report_target: z.literal("owner").optional(),
+  feature_stock: z.boolean().optional(),
 });
 
 export const InviteBody = z.object({ role: z.enum(["admin", "staff"]) });
@@ -146,3 +156,21 @@ export const InviteBody = z.object({ role: z.enum(["admin", "staff"]) });
 export const UserPatchBody = z
   .object({ role: z.enum(["admin", "staff"]).optional(), is_active: z.boolean().optional() })
   .refine((v) => v.role !== undefined || v.is_active !== undefined, "Tidak ada perubahan");
+
+// --- Modul stok -----------------------------------------------------------------
+
+export const StockSetBody = z.object({
+  actual: z.int().min(-1_000_000_000).max(1_000_000_000),
+  note: z.string().max(200).nullish(),
+  tanggal: ymd.optional(),
+});
+
+export const PurchaseCreateBody = z.object({
+  uid: uid.optional(),
+  tanggal: ymd,
+  supplier: z.string().max(80).nullish(),
+  items: z.array(z.object({ product_id: id, qty: z.int().min(1).max(1_000_000), unit_cost: money })).min(1).max(50),
+  account_id: id,
+  update_cost: z.enum(["average", "last", "none"]).optional(),
+  note,
+});

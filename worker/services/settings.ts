@@ -59,15 +59,17 @@ export interface AppSettings {
   /** Jam kirim (WIB) 0–23 untuk semua laporan otomatis */
   report_hour: number;
   report_target: ReportTarget;
+  /** Modul stok (§9.4) */
+  feature_stock: boolean;
 }
 
-const BOOL_KEYS = ["daily_report_enabled", "weekly_report_enabled", "monthly_report_enabled"] as const;
+const BOOL_KEYS = ["daily_report_enabled", "weekly_report_enabled", "monthly_report_enabled", "feature_stock"] as const;
 
 export async function getAppSettings(db: D1Database): Promise<AppSettings> {
   const { results } = await db
     .prepare(
       `SELECT key, value FROM settings WHERE key IN ('business_name','daily_report_enabled','weekly_report_enabled',
-         'monthly_report_enabled','daily_report_hour_wib','daily_report_chat_id','daily_report_chat_title')`,
+         'monthly_report_enabled','daily_report_hour_wib','daily_report_chat_id','daily_report_chat_title','feature_stock')`,
     )
     .all<{ key: string; value: string }>();
   const m = new Map(results.map((r) => [r.key, r.value]));
@@ -82,6 +84,7 @@ export async function getAppSettings(db: D1Database): Promise<AppSettings> {
     report_target: chatId
       ? { type: "group", chatId: Number(chatId), title: m.get("daily_report_chat_title") ?? null }
       : { type: "owner", chatId: null, title: null },
+    feature_stock: m.get("feature_stock") === "1",
   };
 }
 
@@ -93,6 +96,7 @@ export interface SettingsPatch {
   report_hour?: number;
   /** Hanya bisa dikembalikan ke "owner"; grup dipilih lewat /jadwal grup di grup itu. */
   report_target?: "owner";
+  feature_stock?: boolean;
 }
 
 export async function updateAppSettings(db: D1Database, patch: SettingsPatch, actor: { id: number; role: string }): Promise<AppSettings> {

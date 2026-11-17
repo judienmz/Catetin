@@ -249,3 +249,55 @@ describe("REST API: pengaturan & user", () => {
     expect((await call("PATCH", `/api/users/${me.id}`, ownerToken, { role: "staff" })).status).toBe(409);
   });
 });
+
+describe("REST API: modul stok", () => {
+  useFreshDb();
+  let ownerToken = "";
+  let staffToken = "";
+  beforeEach(async () => {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO users (telegram_id, full_name, role) VALUES (111, 'Budi', 'owner')"),
+      env.DB.prepare("INSERT INTO users (telegram_id, full_name, role) VALUES (333, 'Sari', 'staff')"),
+    ]);
+    ownerToken = await login(111);
+    staffToken = await login(333);
+  });
+  afterEach(() => setTelegramApiFactory((t) => new Api(t)));
+
+  it("aktifkan modul → menu bot diperbarui; produk dengan stok awal; opname; restock; staff dibatasi", async () => {
+    const tg = mockTelegram();
+    setTelegramApiFactory((t) => {
+      const a = new Api(t);
+      a.config.use(tg.transformer);
+      return a;
+    });
+    expect((await call("GET", "/api/stock/low", ownerToken)).status).toBe(403); // modul mati
+    const s = await call("PATCH", "/api/settings", ownerToken, { feature_stock: true });
+    expect(s.json.data.feature_stock).toBe(true);
+    const cmds = tg.calls.find((c) => c.method === "setMyCommands")!.payload["commands"] as { command: string }[];
+    expect(cmds.map((c) => c.command)).toEqual(expect.arrayContaining(["stok", "restock"]));
+    expect((await call("GET", "/api/meta", ownerToken)).json.data.features).toEqual({ stock: true });
+
+    const p = await call("POST", "/api/products", ownerToken, { name: "Salep", cost_price: 10_000, sell_price: 20_000, min_stock: 5, opening_stock: 12 });
+    expect(p.json.data).toMatchObject({ stock: 12, min_stock: 5, track_stock: 1 });
+    const id = p.json.data.id;
+
+    const op = await call("POST", `/api/products/${id}/stock`, ownerToken, { actual: 4, note: "hitung ulang" });
+    expect(op.json.data.change).toBe(-8);
+    expect((await call("GET", "/api/stock/low", staffToken)).json.data.map((x: { name: string }) => x.name)).toEqual(["Salep"]);
+    expect((await call("POST", `/api/products/${id}/stock`, staffToken, { actual: 1 })).status).toBe(403);
+
+    const today = wibDate();
+    const pu = await call("POST", "/api/purchases", ownerToken, { tanggal: today, items: [{ product_id: id, qty: 6, unit_cost: 11_000 }], account_id: 1 });
+    expect(pu.status).toBe(201);
+    expect(pu.json.data.hppChanges[0]).toMatchObject({ before: 10_000, after: 10_600 });
+    expect((await call("GET", "/api/purchases", staffToken)).status).toBe(403);
+    const list = await call("GET", "/api/purchases", ownerToken);
+    expect(list.json.data.items[0]).toMatchObject({ total: 66_000, first_item: "Salep", item_count: 1 });
+    const moves = await call("GET", `/api/products/${id}/movements`, ownerToken);
+    expect(moves.json.data.map((m: { type: string }) => m.type)).toEqual(["purchase", "adjustment", "opening"]);
+
+    const v = await call("POST", `/api/purchases/${pu.json.data.id}/void`, ownerToken, {});
+    expect(v.json.data.status).toBe("void");
+  });
+});

@@ -230,7 +230,8 @@ Repo hasil tombol Deploy adalah **repo baru, bukan fork**, jadi tidak ada tombol
 | `/export [periode] [csv]` | `/export bulan lalu` · `/export bulan csv` | 1 file **PDF** laporan keuangan (ringkasan, laba rugi, arus kas, per item, harian, daftar penjualan & kas); tambah `csv` untuk 3 file spreadsheet. Default bulan ini. Admin+, chat pribadi saja |
 | `/jadwal` · `/jadwal grup` · `/jadwal pribadi` | `/jadwal grup` (di grup) | Lihat jadwal laporan otomatis & pilih tujuannya (owner) |
 | `/user` · `/user undang [staff\|admin]` · `/user tambah [staff\|admin]` (reply) · `/user ubah\|nonaktif\|aktif <nama\|@username>` | `/user undang staff` | Kelola anggota (owner). Undangan = tautan `t.me/<bot>?start=join_<kode>`, sekali pakai, 24 jam, hanya dibuat di chat pribadi |
-| `/stok [nama]` | `/stok salep` | *(modul stok)* Stok per produk + tanda stok menipis |
+| `/stok [nama]` | `/stok salep` | *(modul stok)* Stok per produk + tanda menipis/habis (semua peran) |
+| `/restock <produk> <qty> <harga beli satuan> [supplier]` | `/restock salep 10 12rb toko abc` | *(modul stok, admin+)* Draf → Simpan; HPP rata-rata, kas keluar Belanja Stok; tombol Batalkan = void pembelian |
 | `/app` | – | Tombol inline `web_app` |
 
 **Aturan input bot**
@@ -296,7 +297,7 @@ Set `sales.status='void'` (+ `voided_at/by`, `void_reason`), void `cash_transact
   Void salah satu = void keduanya.
 
 ### 9.4 Modul stok (`feature_stock=1`)
-**Mengaktifkan** modul stok: owner diminta mengisi stok awal per produk → `stock_movements(type='opening')` + set `products.stock`. Produk baru yang dibuat dengan stok awal juga mencatat mutasi `opening`.
+**Mengaktifkan** modul stok (owner, ⚙ Pengaturan → Usaha → Modul stok; menu perintah bot ikut diperbarui): isi stok per produk lewat **Stok opname** (`services/stock.ts → setStockCount`): jumlah fisik di-set langsung, selisihnya dihitung di SQL dan dicatat sebagai mutasi `opening` (bila produk belum punya mutasi) atau `adjustment`. Produk baru dengan `opening_stock` juga mencatat `opening`. Produk `track_stock = 0` (jasa) tidak bisa di-opname.
 
 **Menonaktifkan**: data lama tetap tersimpan; halaman Stok, `/stok`, restock, dan notifikasi disembunyikan; penjualan berhenti menulis mutasi stok.
 
@@ -314,7 +315,11 @@ Saat modul mati, endpoint stok/pembelian membalas `AppError('FEATURE_DISABLED', 
 
 **Void pembelian**: set `purchases.status='void'`, void kas terkait, insert `stock_movements(type='purchase_void', −qty)`, kurangi stok. **HPP tidak dihitung ulang otomatis** (HPP rata-rata tidak bisa dibalik dengan pasti setelah ada penjualan); respons memberi peringatan agar admin memeriksa HPP produk terkait dan mengubahnya manual bila perlu.
 
-**Penyesuaian stok**: `stock_movements(type='adjustment', qty_change, note)` + update stok. Tidak menyentuh kas maupun laba rugi.
+**Penyesuaian stok** (= stok opname): `stock_movements(type='adjustment', qty_change, note)` + update stok. Tidak menyentuh kas maupun laba rugi.
+
+**Implementasi pembelian** (`services/purchases.ts`): baris dengan produk yang sama digabung dulu (HPP dihitung sekali per produk). Statement HPP per mode dibuat terpisah karena D1 menuntut jumlah nilai bind = jumlah parameter SQL. Produk tanpa lacak stok tidak mendapat mutasi, tetapi HPP-nya tetap diperbarui dari harga beli.
+
+**Peringatan stok menipis**: cron pada jam laporan, maks 1x/hari (klaim `last_lowstock_report_date`), ke chat pribadi owner: produk aktif & dilacak dengan `stock <= min_stock`.
 
 ### 9.5 Perubahan HPP / harga manual
 Update `products`, insert `product_price_history(reason='manual')`. **Transaksi lama tidak ikut berubah** karena laporan memakai snapshot di `sale_items`.
@@ -409,10 +414,11 @@ Semua respons berbentuk JSON `{ ok: true, data }` atau `{ ok: false, error: { co
 | GET | `/api/products` | semua | `?q=&active=` |
 | POST | `/api/products` | admin+ | |
 | PATCH | `/api/products/:id` | admin+ | ubah HPP/harga → history |
-| GET/POST | `/api/purchases` | admin+ | *(modul stok)* restock |
-| POST | `/api/purchases/:id/void` | admin+ | *(modul stok)* |
-| GET | `/api/stock/movements` | admin+ | *(modul stok)* `?product_id&from&to` |
-| POST | `/api/products/:id/adjust` | admin+ | *(modul stok)* `{ qty_change, note }` |
+| GET · GET :id · POST | `/api/purchases[/:id]` | admin+ | *(modul stok)* restock: `{ uid?, tanggal, supplier?, items:[{product_id, qty, unit_cost}], account_id, update_cost: average\|last\|none, note? }` → termasuk `hppChanges` |
+| POST | `/api/purchases/:id/void` | admin+ | *(modul stok)* stok & kas dibalik; HPP tidak dihitung ulang (ada `warnings`) |
+| POST | `/api/products/:id/stock` | admin+ | *(modul stok)* stok opname `{ actual, note?, tanggal? }` → `{ product, change }` |
+| GET | `/api/products/:id/movements` | admin+ | *(modul stok)* 100 mutasi terakhir |
+| GET | `/api/stock/low` | semua | *(modul stok)* produk dengan `stock <= min_stock` |
 | GET | `/api/reports/summary` | semua | dashboard; staff hanya menerima omzet, jumlah transaksi, grafik omzet, item terlaris |
 | GET | `/api/reports/profit-loss` | admin+ | `?period=` atau `?from&to` |
 | GET | `/api/reports/cashflow` | admin+ | `?period=` atau `?from&to` |
@@ -436,7 +442,7 @@ Paginasi: `?page=1&limit=50` (maks 100). Validasi semua body dengan Zod dari `sh
 | **Kas** | List transaksi (filter tanggal/kategori/akun), tombol tambah masuk/keluar, transfer |
 | **Penjualan** | Mode cepat (nominal + HPP opsional) dan mode keranjang (cari produk, qty, harga bisa diubah, diskon); riwayat, detail, void |
 | **Produk** | List, tambah/edit (HPP, harga jual, margin otomatis), riwayat harga |
-| **Stok** *(modul stok)* | Stok per produk, restock, penyesuaian, mutasi |
+| **Stok** *(modul stok)* | Di tab Produk (pilihan Produk/Stok): daftar stok urut paling kritis, detail produk (stok opname, mutasi), Restock (multi-item, pilihan update HPP, perkiraan HPP & stok baru), Riwayat restock + batalkan. Form produk: lacak stok, stok minimum, satuan, stok awal |
 | **Laporan** | Tab Laba Rugi / Arus Kas / Harian / Per Item, pemilih periode (§10), ekspor CSV |
 | **Pengaturan** (ikon ⚙ di Beranda, admin+) | Owner: nama usaha, laporan otomatis (harian/mingguan/bulanan, jam, tujuan), user (undang lewat tautan + bagikan, ubah peran, nonaktifkan). Admin+: kategori kas (masuk/keluar + jenis), channel penjualan. Owner: akun kas/rekening (saldo awal). *(Fase 6:)* modul stok |
 
@@ -487,7 +493,7 @@ Cron berjalan **setiap jam** (`0 * * * *`). Di dalam handler (semua jam & tangga
 | **3. Laporan** ✅ | Periode (§10), laba rugi, arus kas, harian, per item, `/laporan`, `/export` CSV lewat bot. Kelola user lewat `/user` (dimajukan dari Fase 5) | Angka cocok dengan perhitungan manual |
 | **4. Mini App** ✅ | Auth initData, token sesi, `redact.ts`, REST API, Beranda, Kas (+transfer), Jual (cepat & keranjang), Produk, Laporan (4 tab + kirim PDF). Tambahan: Pengaturan kategori/akun kas/channel, ekspor PDF | Semua input & laporan bisa lewat Mini App |
 | **5. Multi-user & cron** ✅ | Kelola user di Mini App, redact staff di API, nama usaha, laporan harian/mingguan/bulanan terjadwal (+PDF bulanan), `/jadwal` | Laporan terkirim otomatis tanpa dobel |
-| **6. Modul stok (opsional)** | Flag `feature_stock`, stok awal, mutasi, restock, HPP average, void pembelian, penyesuaian, notifikasi | Aktif/nonaktif tanpa merusak data; HPP benar setelah restock |
+| **6. Modul stok (opsional)** ✅ | Flag `feature_stock`, stok awal, mutasi, restock, HPP average, void pembelian, penyesuaian, notifikasi | Aktif/nonaktif tanpa merusak data; HPP benar setelah restock |
 | **7. Distribusi** | Tombol Deploy to Cloudflare, `.dev.vars.example`, workflow sync-upstream, README setup & update | Teman yang awam bisa setup < 15 menit dan update sendiri |
 
 **Kandidat v2:** sync/backup ke Google Sheets (cron malam), utang-piutang, multi-cabang, import pesanan Shopee/TikTok, struk penjualan (gambar/PDF) dikirim ke chat.

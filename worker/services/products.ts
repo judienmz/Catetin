@@ -103,9 +103,12 @@ export interface UpdateProductInput {
   name?: string;
   costPrice?: number;
   sellPrice?: number;
+  unit?: string;
+  trackStock?: boolean;
+  minStock?: number;
 }
 
-/** Ubah nama/HPP/harga jual. Riwayat harga dicatat bila HPP atau harga berubah. */
+/** Ubah nama/HPP/harga jual/satuan/lacak stok/stok minimum. Riwayat harga dicatat bila HPP atau harga berubah. */
 export async function updateProduct(db: D1Database, id: number, input: UpdateProductInput, actor: Actor): Promise<Product> {
   assertAdmin(actor);
   const before = await getProduct(db, id);
@@ -121,13 +124,21 @@ export async function updateProduct(db: D1Database, id: number, input: UpdatePro
     if (dup) throw new AppError("DUPLICATE", `Produk "${name}" sudah ada.`, 409);
   }
 
+  const unit = input.unit !== undefined ? input.unit.trim().slice(0, 20) || "pcs" : before.unit;
+  const track = input.trackStock === undefined ? before.track_stock : input.trackStock ? 1 : 0;
+  const minStock = input.minStock ?? before.min_stock;
+  if (!Number.isSafeInteger(minStock) || minStock < 0 || minStock > 1_000_000_000) throw new AppError("INVALID_QTY", "Stok minimum harus bilangan bulat ≥ 0.");
+
   const priceChanged = cost !== before.cost_price || sell !== before.sell_price;
-  if (!priceChanged && name === before.name) return before;
+  const otherChanged = name !== before.name || unit !== before.unit || track !== before.track_stock || minStock !== before.min_stock;
+  if (!priceChanged && !otherChanged) return before;
 
   const stmts: D1PreparedStatement[] = [
     db
-      .prepare("UPDATE products SET name = ?2, cost_price = ?3, sell_price = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1")
-      .bind(id, name, cost, sell),
+      .prepare(
+        "UPDATE products SET name = ?2, cost_price = ?3, sell_price = ?4, unit = ?5, track_stock = ?6, min_stock = ?7, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
+      )
+      .bind(id, name, cost, sell, unit, track, minStock),
   ];
   if (priceChanged) {
     stmts.push(
@@ -143,8 +154,8 @@ export async function updateProduct(db: D1Database, id: number, input: UpdatePro
         actor.id,
         id,
         JSON.stringify({
-          before: { name: before.name, cost_price: before.cost_price, sell_price: before.sell_price },
-          after: { name, cost_price: cost, sell_price: sell },
+          before: { name: before.name, cost_price: before.cost_price, sell_price: before.sell_price, unit: before.unit, track_stock: before.track_stock, min_stock: before.min_stock },
+          after: { name, cost_price: cost, sell_price: sell, unit, track_stock: track, min_stock: minStock },
         }),
       ),
   );
