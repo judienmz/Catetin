@@ -171,12 +171,18 @@ finbot/
 
 ### Update versi
 Repo hasil tombol Deploy adalah **repo baru, bukan fork**, jadi tidak ada tombol "Sync fork". Solusinya:
-1. Repo menyertakan `.github/workflows/sync-upstream.yml` (`workflow_dispatch`) yang menarik branch `main` dari repo asal lalu push ke repo pengguna.
-2. Pengguna membuka tab **Actions → Sync upstream → Run workflow**.
+1. Repo menyertakan `.github/workflows/sync-upstream.yml` (`workflow_dispatch`, judul **"Ambil update Catetin"**). Workflow ini **tidak me-merge** (riwayat repo pengguna tidak berhubungan dengan repo asal); ia menimpa file dengan isi `main` repo asal (`judienmz/Catetin`), menghapus file yang sudah dihapus di folder terkelola (`worker miniapp migrations shared test`), lalu commit & push.
+2. **`wrangler.jsonc` milik pengguna tidak pernah ditimpa**, karena Cloudflare menulis ID database D1 ke file itu saat deploy pertama; menimpanya bisa membuat database baru yang kosong. Bila `wrangler.jsonc` resmi berubah, workflow menulis peringatan di ringkasan run supaya pengguna menyalin perubahan secara manual. Konsekuensinya: **binding atau pengaturan baru di `wrangler.jsonc` harus dihindari**, dan kalau terpaksa, diumumkan di README.
 3. Push itu memicu Workers Builds untuk redeploy otomatis.
 4. Pengguna membuka `/setup` lagi; migrasi baru akan jalan.
 
-> Perilaku tombol Deploy & Workers Builds diverifikasi ulang di Fase 7 sebelum README ditulis.
+**Fakta tombol Deploy (dicek dari dokumentasi Cloudflare, Fase 7):**
+- Repo wajib publik.
+- Cloudflare menyalin repo menjadi **repo baru** di akun GitHub pengguna (bukan fork).
+- Resource D1 dibuat otomatis, dan ID-nya ditulis ke config.
+- Secret diminta dari `.dev.vars.example`, dengan teks bantuan dari `package.json → cloudflare.bindings.<NAMA>.description`.
+- Script `build` & `deploy` di `package.json` dipakai sebagai perintah build/deploy.
+- Migrasi D1 tidak dijalankan otomatis; ditangani `/setup`.
 
 ### 6.3 `db/migrate.ts`
 - `CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`.
@@ -494,6 +500,6 @@ Cron berjalan **setiap jam** (`0 * * * *`). Di dalam handler (semua jam & tangga
 | **4. Mini App** ✅ | Auth initData, token sesi, `redact.ts`, REST API, Beranda, Kas (+transfer), Jual (cepat & keranjang), Produk, Laporan (4 tab + kirim PDF). Tambahan: Pengaturan kategori/akun kas/channel, ekspor PDF | Semua input & laporan bisa lewat Mini App |
 | **5. Multi-user & cron** ✅ | Kelola user di Mini App, redact staff di API, nama usaha, laporan harian/mingguan/bulanan terjadwal (+PDF bulanan), `/jadwal` | Laporan terkirim otomatis tanpa dobel |
 | **6. Modul stok (opsional)** ✅ | Flag `feature_stock`, stok awal, mutasi, restock, HPP average, void pembelian, penyesuaian, notifikasi | Aktif/nonaktif tanpa merusak data; HPP benar setelah restock |
-| **7. Distribusi** | Tombol Deploy to Cloudflare, `.dev.vars.example`, workflow sync-upstream, README setup & update | Teman yang awam bisa setup < 15 menit dan update sendiri |
+| **7. Distribusi** ✅ | Repo publik `judienmz/Catetin`, tombol Deploy to Cloudflare, `.dev.vars.example` + deskripsi secret di `package.json`, workflow "Ambil update Catetin", README setup & update (tanpa lisensi, karena dipakai pribadi & teman) | Teman yang awam bisa setup < 15 menit dan update sendiri |
 
 **Kandidat v2:** sync/backup ke Google Sheets (cron malam), utang-piutang, multi-cabang, import pesanan Shopee/TikTok, struk penjualan (gambar/PDF) dikirim ke chat.
