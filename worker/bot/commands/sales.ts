@@ -13,50 +13,22 @@ import { getAccount, listAccounts } from "../../services/cash";
 import { getFeatures } from "../../services/features";
 import { getProduct, listProducts } from "../../services/products";
 import { createSale, voidSale, type SaleItemInput } from "../../services/sales";
+import { CHANNEL_ALIASES, listChannels, type Channel } from "../../services/masters";
 
-/** Kata yang dikenali sebagai channel penjualan → nilai yang disimpan. */
-const CHANNELS: Record<string, string> = {
-  offline: "offline",
-  toko: "offline",
-  online: "online",
-  shopee: "shopee",
-  tokopedia: "tokopedia",
-  tokped: "tokopedia",
-  tiktok: "tiktok",
-  lazada: "lazada",
-  blibli: "blibli",
-  wa: "whatsapp",
-  whatsapp: "whatsapp",
-  ig: "instagram",
-  instagram: "instagram",
-  fb: "facebook",
-  facebook: "facebook",
-  gofood: "gofood",
-  grabfood: "grabfood",
-  shopeefood: "shopeefood",
-};
-
-const CHANNEL_LABEL: Record<string, string> = {
-  offline: "Offline",
-  online: "Online",
-  shopee: "Shopee",
-  tokopedia: "Tokopedia",
-  tiktok: "TikTok",
-  lazada: "Lazada",
-  blibli: "Blibli",
-  whatsapp: "WhatsApp",
-  instagram: "Instagram",
-  facebook: "Facebook",
-  gofood: "GoFood",
-  grabfood: "GrabFood",
-  shopeefood: "ShopeeFood",
-};
-
-/** Ambil kata channel pertama dari daftar kata; sisanya jadi catatan. */
-export function extractChannel(ws: string[]): { channel: string; rest: string[] } {
-  const idx = ws.findIndex((w) => CHANNELS[w.toLowerCase()] !== undefined);
+/** Cari kata yang cocok dengan channel aktif (code, nama tanpa spasi, atau singkatan); sisanya jadi catatan. */
+export function extractChannel(ws: string[], channels: Pick<Channel, "code" | "name">[]): { channel: string; rest: string[] } {
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const lookup = new Map<string, string>();
+  for (const c of channels) {
+    lookup.set(norm(c.code), c.code);
+    lookup.set(norm(c.name), c.code);
+  }
+  for (const [alias, code] of Object.entries(CHANNEL_ALIASES)) {
+    if (channels.some((c) => c.code === code) && !lookup.has(alias)) lookup.set(alias, code);
+  }
+  const idx = ws.findIndex((w) => lookup.has(norm(w)));
   if (idx < 0) return { channel: "offline", rest: ws };
-  return { channel: CHANNELS[ws[idx]!.toLowerCase()]!, rest: [...ws.slice(0, idx), ...ws.slice(idx + 1)] };
+  return { channel: lookup.get(norm(ws[idx]!))!, rest: [...ws.slice(0, idx), ...ws.slice(idx + 1)] };
 }
 
 const QUICK_ITEM_NAME = "Penjualan cepat";
@@ -120,7 +92,10 @@ defineDraftType<SaleDraft>("sale", {
       body.push(`Laba kotor: <b>${rupiah(total - hpp)}</b>`);
     }
     body.push(`Akun: ${html(account?.name ?? "-")}`);
-    if (d.channel !== "offline") body.push(`Channel: ${CHANNEL_LABEL[d.channel] ?? html(d.channel)}`);
+    if (d.channel !== "offline") {
+      const ch = (await listChannels(db, false)).find((c) => c.code === d.channel);
+      body.push(`Channel: ${html(ch?.name ?? d.channel)}`);
+    }
     body.push(`Tanggal: ${tanggalPendek(d.tanggal)}`);
     if (d.note) body.push(`Catatan: ${html(d.note)}`);
 
@@ -189,7 +164,7 @@ async function startOmzet(ctx: BotContext, args: string): Promise<void> {
     hpp = h.amount;
     rest = h.rest;
   }
-  const { channel, rest: noteWords } = extractChannel(rest);
+  const { channel, rest: noteWords } = extractChannel(rest, await listChannels(ctx.env.DB));
   const accountId = await defaultAccountId(ctx);
   if (accountId === null) return;
 
@@ -259,7 +234,7 @@ async function startJual(ctx: BotContext, args: string): Promise<void> {
       rest = rest.slice(1);
     }
   }
-  const { channel, rest: noteWords } = extractChannel(rest);
+  const { channel, rest: noteWords } = extractChannel(rest, await listChannels(ctx.env.DB));
   const accountId = await defaultAccountId(ctx);
   if (accountId === null) return;
 

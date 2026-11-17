@@ -3,8 +3,9 @@ import { InputFile, type Api, type Bot } from "grammy/web";
 import type { BotContext } from "../bot";
 import { html, rupiah, tanggalPendek } from "../format";
 import { canSeeCost, guard, isAdmin } from "../drafts";
-import { daysInclusive, parsePeriod, type Period } from "../../lib/date";
+import { daysInclusive, parsePeriod, wibDateTimeLabel, type Period } from "../../lib/date";
 import { buildExport } from "../../services/exports";
+import { buildPdfReport } from "../../services/pdfReport";
 import { cashflow, daily, itemsSold, profitLoss, EXPORT_ROW_LIMIT } from "../../services/reports";
 
 const PERIOD_HELP = [
@@ -96,23 +97,41 @@ async function exportCmd(ctx: BotContext): Promise<void> {
     await ctx.reply("Ekspor berisi HPP & laba, jadi hanya dikirim lewat chat pribadi dengan bot.");
     return;
   }
-  const arg = typeof ctx.match === "string" ? ctx.match.trim() : "";
+  let arg = typeof ctx.match === "string" ? ctx.match.trim() : "";
+  let format: ExportFormat = "pdf";
+  const fm = /(?:^|\s)(pdf|csv)$/i.exec(arg);
+  if (fm) {
+    format = fm[1]!.toLowerCase() as ExportFormat;
+    arg = arg.slice(0, fm.index).trim();
+  }
   const p = parsePeriod(arg || "bulan"); // default ekspor: bulan ini
   if (!p) {
-    await ctx.reply(`Periode tidak dikenali.\n\n${PERIOD_HELP}`, { parse_mode: "HTML" });
+    await ctx.reply(
+      `Periode tidak dikenali.\n\n${PERIOD_HELP}\n\nTambahkan <code>csv</code> di akhir untuk file spreadsheet, mis. <code>/export bulan csv</code>.`,
+      { parse_mode: "HTML" },
+    );
     return;
   }
-  await sendExport(ctx.api, ctx.chat.id, ctx.env.DB, p);
+  await sendExport(ctx.api, ctx.chat.id, ctx.env.DB, p, format);
 }
 
-/** Kirim 3 file CSV ke sebuah chat. Dipakai /export dan tombol Ekspor di Mini App. */
-export async function sendExport(api: Api, chatId: number, db: D1Database, p: Period): Promise<void> {
+export type ExportFormat = "pdf" | "csv";
+
+/** Kirim laporan ke sebuah chat: 1 file PDF (default) atau 3 file CSV. Dipakai /export dan tombol di Mini App. */
+export async function sendExport(api: Api, chatId: number, db: D1Database, p: Period, format: ExportFormat = "pdf"): Promise<void> {
+  if (format === "pdf") {
+    const r = await buildPdfReport(db, p, wibDateTimeLabel());
+    await api.sendDocument(chatId, new InputFile(r.bytes, r.filename), {
+      caption: `📄 Laporan keuangan ${p.label} (${rangeLabel(p)})`,
+    });
+    return;
+  }
   const bundle = await buildExport(db, p.from, p.to);
   for (const [i, f] of bundle.files.entries()) {
     await api.sendDocument(
       chatId,
       csvFile(f.content, f.name),
-      i === 0 ? { caption: `Laporan ${p.label} (${rangeLabel(p)}): laba rugi, penjualan, dan kas.` } : {},
+      i === 0 ? { caption: `Laporan ${p.label} (${rangeLabel(p)}): laba rugi, penjualan, dan kas (CSV, pemisah titik koma).` } : {},
     );
   }
   if (bundle.truncated) {

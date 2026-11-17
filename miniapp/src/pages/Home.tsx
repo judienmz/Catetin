@@ -3,6 +3,7 @@ import { pct, rupiah, tgl } from "../format";
 import { BarChart, Empty, ErrorBox, Loading, Row, Section, useApp, useAsync } from "../ui";
 import { openCashForm } from "./Cash";
 import { openCartForm, openQuickSale } from "./Sales";
+import { openSettings } from "./Settings";
 
 function delta(now: number, prev: number | undefined): { text: string; cls: string } | null {
   if (prev === undefined) return null;
@@ -30,10 +31,20 @@ export function Home({ goTo }: { goTo: (tab: string) => void }) {
 
   return (
     <div>
-      <header class="page-head">
-        <p class="eyebrow">{tgl(meta.today)}</p>
-        <h1>{meta.business_name}</h1>
-        <p class="muted">Halo, {meta.user.full_name.split(" ")[0]}</p>
+      <header class="page-head row-head">
+        <div>
+          <p class="eyebrow">{tgl(meta.today)}</p>
+          <h1>{meta.business_name}</h1>
+          <p class="muted">Halo, {meta.user.full_name.split(" ")[0]}</p>
+        </div>
+        {isAdmin ? (
+          <button class="icon-btn" onClick={() => openSettings(app)} aria-label="Pengaturan">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+            </svg>
+          </button>
+        ) : null}
       </header>
 
       <div class="quick">

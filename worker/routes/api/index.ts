@@ -5,7 +5,7 @@ import { AppError } from "../../lib/errors";
 import { wibDate } from "../../lib/date";
 import { validateInitData } from "../../auth/initData";
 import { issueSession } from "../../auth/session";
-import { AuthBody, CashCreateBody, CashListQuery, ListQuery, PeriodQuery, ProductCreateBody, ProductPatchBody, SaleCreateBody, TransferBody, VoidBody } from "../../../shared/schemas";
+import { AccountCreateBody, AccountPatchBody, AuthBody, CategoryCreateBody, CategoryPatchBody, ChannelBody, CashCreateBody, CashListQuery, ListQuery, PeriodQuery, ProductCreateBody, ProductPatchBody, SaleCreateBody, TransferBody, VoidBody } from "../../../shared/schemas";
 import { getSessionSecret, getSetting } from "../../services/settings";
 import { findActiveUser } from "../../services/users";
 import { getFeatures } from "../../services/features";
@@ -22,6 +22,7 @@ import { createSale, getSale, listSales, voidSale } from "../../services/sales";
 import { createProduct, listProducts, updateProduct } from "../../services/products";
 import { cashflow, daily, itemsSold, profitLoss, summary } from "../../services/reports";
 import { sendExport } from "../../bot/commands/reports";
+import { addAccount, createCategory, createChannel, deleteAccount, deleteCategory, deleteChannel, listChannels, updateAccount, updateCategory, updateChannel } from "../../services/masters";
 import { ok, parseBody, parseQuery, requireAdmin, requireSession, resolvePeriod, telegramApi, type ApiEnv } from "./util";
 
 export const apiRoutes = new Hono<ApiEnv>();
@@ -62,11 +63,12 @@ api.get("/meta", async (c) => {
   const db = c.env.DB;
   const u = c.var.user;
   const admin = u.role !== "staff";
-  const [business, features, accounts, categories] = await Promise.all([
+  const [business, features, accounts, categories, channels] = await Promise.all([
     getSetting(db, "business_name"),
     getFeatures(db),
     admin ? accountBalances(db) : listAccounts(db),
     listCategories(db),
+    listChannels(db),
   ]);
   return ok(c, {
     user: { id: u.id, full_name: u.full_name, role: u.role },
@@ -74,6 +76,7 @@ api.get("/meta", async (c) => {
     features,
     accounts,
     categories,
+    channels,
     today: wibDate(),
     version: c.env.APP_VERSION,
   });
@@ -232,6 +235,58 @@ api.post("/reports/export", async (c) => {
   const p = resolvePeriod(parseQuery(c, PeriodQuery));
   await sendExport(telegramApi(c.env), c.var.user.telegram_id, c.env.DB, p);
   return ok(c, { sent: true, period: p });
+});
+
+// --- Data master (Pengaturan) -------------------------------------------------
+
+const idParam = (c: { req: { param(k: string): string } }) => Number(c.req.param("id"));
+
+api.post("/categories", async (c) => {
+  const b = await parseBody(c, CategoryCreateBody);
+  return ok(c, await createCategory(c.env.DB, b, c.var.actor), 201);
+});
+api.patch("/categories/:id", async (c) => {
+  const b = await parseBody(c, CategoryPatchBody);
+  return ok(c, await updateCategory(c.env.DB, idParam(c), { ...(b.name !== undefined ? { name: b.name } : {}), ...(b.kind !== undefined ? { kind: b.kind } : {}) }, c.var.actor));
+});
+api.delete("/categories/:id", async (c) => {
+  await deleteCategory(c.env.DB, idParam(c), c.var.actor);
+  return ok(c, { deleted: true });
+});
+
+api.post("/accounts", async (c) => {
+  const b = await parseBody(c, AccountCreateBody);
+  return ok(c, await addAccount(c.env.DB, { name: b.name, type: b.type, openingBalance: b.opening_balance ?? 0 }, c.var.actor), 201);
+});
+api.patch("/accounts/:id", async (c) => {
+  const b = await parseBody(c, AccountPatchBody);
+  return ok(
+    c,
+    await updateAccount(
+      c.env.DB,
+      idParam(c),
+      { ...(b.name !== undefined ? { name: b.name } : {}), ...(b.type !== undefined ? { type: b.type } : {}), ...(b.opening_balance !== undefined ? { openingBalance: b.opening_balance } : {}) },
+      c.var.actor,
+    ),
+  );
+});
+api.delete("/accounts/:id", async (c) => {
+  await deleteAccount(c.env.DB, idParam(c), c.var.actor);
+  return ok(c, { deleted: true });
+});
+
+api.get("/channels", async (c) => ok(c, await listChannels(c.env.DB)));
+api.post("/channels", async (c) => {
+  const b = await parseBody(c, ChannelBody);
+  return ok(c, await createChannel(c.env.DB, b, c.var.actor), 201);
+});
+api.patch("/channels/:id", async (c) => {
+  const b = await parseBody(c, ChannelBody);
+  return ok(c, await updateChannel(c.env.DB, idParam(c), b, c.var.actor));
+});
+api.delete("/channels/:id", async (c) => {
+  await deleteChannel(c.env.DB, idParam(c), c.var.actor);
+  return ok(c, { deleted: true });
 });
 
 apiRoutes.route("/", api);

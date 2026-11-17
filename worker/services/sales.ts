@@ -7,6 +7,7 @@ import { newUid } from "../lib/crypto";
 import { MAX_AMOUNT } from "../bot/parsers/amount";
 import { getAccount, type Actor, type Source } from "./cash";
 import { getFeatures } from "./features";
+import { getActiveChannel } from "./masters";
 import type { Product } from "./products";
 
 export interface Sale {
@@ -123,6 +124,7 @@ export async function createSale(db: D1Database, input: NewSaleInput, actor: Act
   const note = input.note?.trim().slice(0, 200) || null;
   const customer = input.customerName?.trim().slice(0, 80) || null;
 
+  if (!(await getActiveChannel(db, channel))) throw new AppError("INVALID_CHANNEL", "Channel tidak dikenal atau sudah dihapus.");
   const account = await getAccount(db, input.accountId);
   if (!account || !account.is_active) throw new AppError("INVALID_ACCOUNT", "Akun kas tidak ditemukan.");
 

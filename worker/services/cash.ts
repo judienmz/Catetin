@@ -139,6 +139,7 @@ export interface AccountBalance {
   id: number;
   name: string;
   type: AccountType;
+  opening_balance: number;
   balance: number;
 }
 
@@ -146,7 +147,7 @@ export interface AccountBalance {
 export async function accountBalances(db: D1Database, untilDate?: string): Promise<AccountBalance[]> {
   const { results } = await db
     .prepare(
-      `SELECT a.id, a.name, a.type,
+      `SELECT a.id, a.name, a.type, a.opening_balance,
               a.opening_balance + COALESCE(SUM(CASE t.direction WHEN 'in' THEN t.amount ELSE -t.amount END), 0) AS balance
        FROM accounts a
        LEFT JOIN cash_transactions t

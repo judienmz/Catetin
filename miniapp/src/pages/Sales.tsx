@@ -1,21 +1,11 @@
 import { useMemo, useState } from "preact/hooks";
-import { api, type Product, type Sale } from "../api";
+import { api, type Channel, type Product, type Sale } from "../api";
 import { hariTgl, newUid, PERIOD_LABEL, periodRange, rupiah, type PeriodKey } from "../format";
 import { confirmDialog } from "../tg";
 import { Chips, Empty, ErrorBox, Field, Loading, MoneyInput, PrimaryAction, Row, Section, useApp, useAsync, useSaver, type AppCtx } from "../ui";
 
-export const CHANNELS: { value: string; label: string }[] = [
-  { value: "offline", label: "Offline" },
-  { value: "shopee", label: "Shopee" },
-  { value: "tokopedia", label: "Tokopedia" },
-  { value: "tiktok", label: "TikTok" },
-  { value: "whatsapp", label: "WhatsApp" },
-  { value: "instagram", label: "Instagram" },
-  { value: "gofood", label: "GoFood" },
-  { value: "grabfood", label: "GrabFood" },
-  { value: "online", label: "Online lain" },
-];
-const channelLabel = (v: string) => CHANNELS.find((c) => c.value === v)?.label ?? v;
+/** Nama channel dari kode (channel yang sudah dihapus tampil sebagai kodenya). */
+const channelLabel = (channels: Channel[], code: string) => channels.find((c) => c.code === code)?.name ?? code;
 
 export function openQuickSale(app: AppCtx): void {
   app.push({ key: `quick-${Date.now()}`, title: "Penjualan cepat", render: () => <QuickSaleForm /> });
@@ -99,7 +89,7 @@ export function SalesPage() {
               <Row
                 strike={s.status === "void"}
                 left={`${s.first_item ?? "-"}${(s.item_count ?? 1) > 1 ? ` +${(s.item_count ?? 1) - 1}` : ""}`}
-                sub={[s.invoice_no, hariTgl(s.tanggal), s.channel !== "offline" ? channelLabel(s.channel) : null, s.status === "void" ? "dibatalkan" : null]
+                sub={[s.invoice_no, hariTgl(s.tanggal), s.channel !== "offline" ? channelLabel(app.meta.channels, s.channel) : null, s.status === "void" ? "dibatalkan" : null]
                   .filter(Boolean)
                   .join(" · ")}
                 right={rupiah(s.total)}
@@ -143,7 +133,7 @@ function CommonFields({
   return (
     <>
       <Field label="Channel">
-        <Chips wrap options={CHANNELS} value={channel} onChange={setChannel} />
+        <Chips wrap options={meta.channels.map((c) => ({ value: c.code, label: c.name }))} value={channel} onChange={setChannel} />
       </Field>
       <Field label="Uang masuk ke">
         <Chips wrap options={meta.accounts.map((a) => ({ value: a.id, label: a.name }))} value={accountId} onChange={setAccountId} />
@@ -371,7 +361,7 @@ function SaleDetail({ id }: { id: number }) {
       </Section>
       <Section>
         <Row left="Tanggal" right={hariTgl(s.tanggal)} />
-        <Row left="Channel" right={channelLabel(s.channel)} />
+        <Row left="Channel" right={channelLabel(app.meta.channels, s.channel)} />
         {s.note ? <Row left="Catatan" right={s.note} /> : null}
       </Section>
       {s.status === "posted" ? (

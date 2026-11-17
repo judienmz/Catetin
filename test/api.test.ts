@@ -183,7 +183,7 @@ describe("REST API", () => {
     expect(ss.json.data.topItems[0]).not.toHaveProperty("hpp");
   });
 
-  it("ekspor: 3 file dikirim ke chat pribadi owner", async () => {
+  it("ekspor: 1 PDF dikirim ke chat pribadi owner", async () => {
     const tg = mockTelegram();
     setTelegramApiFactory((t) => {
       const a = new Api(t);
@@ -193,8 +193,9 @@ describe("REST API", () => {
     const r = await call("POST", "/api/reports/export?period=bulan", ownerToken);
     expect(r.json.data.sent).toBe(true);
     const docs = tg.calls.filter((c) => c.method === "sendDocument");
-    expect(docs).toHaveLength(3);
-    expect(docs.every((d) => d.payload["chat_id"] === 111)).toBe(true);
+    expect(docs).toHaveLength(1);
+    expect(docs[0]!.payload["chat_id"]).toBe(111);
+    expect((docs[0]!.payload["document"] as { filename?: string }).filename).toMatch(/^laporan_.*\.pdf$/);
     expect((await call("POST", "/api/reports/export", staffToken)).status).toBe(403);
   });
 

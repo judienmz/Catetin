@@ -13,6 +13,7 @@ export interface Me {
 export interface Account {
   id: number;
   name: string;
+  opening_balance?: number;
   type: "cash" | "bank" | "ewallet" | "marketplace";
   /** Hanya untuk owner/admin. */
   balance?: number;
@@ -22,6 +23,13 @@ export interface Category {
   name: string;
   direction: Direction;
   kind: CategoryKind;
+  is_system: number;
+}
+export interface Channel {
+  id: number;
+  code: string;
+  name: string;
+  is_system: number;
 }
 export interface Meta {
   user: Me;
@@ -29,6 +37,7 @@ export interface Meta {
   features: { stock: boolean };
   accounts: Account[];
   categories: Category[];
+  channels: Channel[];
   today: string;
   version: string;
 }
@@ -254,5 +263,15 @@ export const api = {
   cashflow: (from: string, to: string) => req<CashFlow>("GET", `/reports/cashflow${qs({ from, to })}`),
   daily: (from: string, to: string) => req<{ period: Period; rows: DailyRow[] }>("GET", `/reports/daily${qs({ from, to })}`),
   items: (from: string, to: string) => req<{ period: Period; rows: ItemRow[] }>("GET", `/reports/items${qs({ from, to })}`),
-  exportCsv: (from: string, to: string) => req<{ sent: boolean }>("POST", `/reports/export${qs({ from, to })}`),
+  exportReport: (from: string, to: string) => req<{ sent: boolean }>("POST", `/reports/export${qs({ from, to })}`),
+
+  createCategory: (b: { name: string; direction: Direction; kind: CategoryKind }) => req<Category>("POST", "/categories", b),
+  updateCategory: (id: number, b: { name?: string; kind?: CategoryKind }) => req<Category>("PATCH", `/categories/${id}`, b),
+  deleteCategory: (id: number) => req<unknown>("DELETE", `/categories/${id}`),
+  createAccount: (b: { name: string; type: Account["type"]; opening_balance: number }) => req<Account>("POST", "/accounts", b),
+  updateAccount: (id: number, b: { name?: string; type?: Account["type"]; opening_balance?: number }) => req<Account>("PATCH", `/accounts/${id}`, b),
+  deleteAccount: (id: number) => req<unknown>("DELETE", `/accounts/${id}`),
+  createChannel: (name: string) => req<Channel>("POST", "/channels", { name }),
+  updateChannel: (id: number, name: string) => req<Channel>("PATCH", `/channels/${id}`, { name }),
+  deleteChannel: (id: number) => req<unknown>("DELETE", `/channels/${id}`),
 };

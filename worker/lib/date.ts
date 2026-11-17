@@ -166,3 +166,13 @@ export function parsePeriod(text: string, now: Date = new Date()): Period | null
   if (!from || !to || to < from || daysInclusive(from, to) > MAX_PERIOD_DAYS) return null;
   return { code: "custom", from, to, label: from === to ? from : `${from} s.d. ${to}` };
 }
+
+const BULAN_PENDEK = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+
+/** "17 Nov 2026 14:05 WIB" */
+export function wibDateTimeLabel(now: Date = new Date()): string {
+  const s = shifted(now);
+  const hh = String(s.getUTCHours()).padStart(2, "0");
+  const mm = String(s.getUTCMinutes()).padStart(2, "0");
+  return `${s.getUTCDate()} ${BULAN_PENDEK[s.getUTCMonth()]} ${s.getUTCFullYear()} ${hh}:${mm} WIB`;
+}

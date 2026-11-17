@@ -28,7 +28,7 @@ describe("migrate", () => {
 
   it("membuat skema, data awal, dan mencatat versi", async () => {
     const v = await env.DB.prepare("SELECT version FROM schema_version").all<{ version: number }>();
-    expect(v.results.map((r) => r.version)).toEqual([1, 2]);
+    expect(v.results.map((r) => r.version)).toEqual([1, 2, 3]);
 
     const cats = await env.DB.prepare("SELECT COUNT(*) AS n FROM categories").first<{ n: number }>();
     expect(cats?.n).toBe(14);
@@ -39,7 +39,7 @@ describe("migrate", () => {
 
   it("idempoten: dijalankan ulang tidak mengubah apa pun", async () => {
     const r = await migrate(env.DB);
-    expect(r).toEqual({ applied: [], current: 2 });
+    expect(r).toEqual({ applied: [], current: 3 });
     const cats = await env.DB.prepare("SELECT COUNT(*) AS n FROM categories").first<{ n: number }>();
     expect(cats?.n).toBe(14);
   });
@@ -53,6 +53,6 @@ describe("migrate", () => {
     const t = await env.DB.prepare("SELECT name FROM sqlite_master WHERE name='coba'").first();
     expect(t).toBeNull();
     const v = await env.DB.prepare("SELECT MAX(version) AS v FROM schema_version").first<{ v: number }>();
-    expect(v?.v).toBe(2);
+    expect(v?.v).toBe(3);
   });
 });

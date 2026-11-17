@@ -73,7 +73,8 @@ finbot/
 │  └─ sync-upstream.yml       # tombol "ambil update" untuk repo pengguna (§6)
 ├─ migrations/
 │  ├─ 0001_init.sql
-│  └─ 0002_user_invites.sql   # undangan user sekali pakai
+│  ├─ 0002_user_invites.sql   # undangan user sekali pakai
+│  └─ 0003_channels.sql       # channel penjualan yang bisa dikelola
 ├─ worker/
 │  ├─ index.ts                # export default { fetch, scheduled }
 │  ├─ env.ts                  # tipe Env (bindings & secrets)
@@ -95,6 +96,8 @@ finbot/
 │  │  ├─ purchases.ts         # modul stok
 │  │  ├─ stock.ts             # modul stok
 │  │  ├─ reports.ts
+│  │  ├─ masters.ts           # kategori, akun kas, channel (tambah/ubah/hapus = nonaktif)
+│  │  ├─ pdfReport.ts         # laporan PDF A4 (pakai lib/pdf.ts, tanpa dependensi)
 │  │  ├─ features.ts          # baca flag (feature_stock, dst.)
 │  │  └─ audit.ts
 │  ├─ db/
@@ -224,7 +227,7 @@ Repo hasil tombol Deploy adalah **repo baru, bukan fork**, jadi tidak ada tombol
 | `/jual <produk> [qty] [harga] [channel] [catatan]` | `/jual salep 3` · `/jual salep 2 18rb wa` | Penjualan 1 item dari master produk (qty default 1) |
 | `/produk` · `/produk tambah <nama> hpp <x> jual <y>` · `/produk ubah <nama> [hpp <x>] [jual <y>]` | `/produk tambah Salep hpp 12rb jual 20rb` | Daftar (semua; HPP hanya admin+ di chat pribadi) · tambah/ubah (admin+) |
 | `/laporan [periode]` | `/laporan bulan` · `/laporan minggu lalu` · `/laporan 1/11 15/11` | Omzet, HPP, laba kotor, biaya per kategori, laba bersih, kas per akun, 5 item terlaris, rincian per hari (≤ 14 hari). Admin+. Di grup tanpa HPP/laba |
-| `/export [periode]` | `/export bulan lalu` | 3 file CSV (laba rugi, penjualan per item, kas); default bulan ini. Admin+, chat pribadi saja |
+| `/export [periode] [csv]` | `/export bulan lalu` · `/export bulan csv` | 1 file **PDF** laporan keuangan (ringkasan, laba rugi, arus kas, per item, harian, daftar penjualan & kas); tambah `csv` untuk 3 file spreadsheet. Default bulan ini. Admin+, chat pribadi saja |
 | `/user` · `/user undang [staff\|admin]` · `/user tambah [staff\|admin]` (reply) · `/user ubah\|nonaktif\|aktif <nama\|@username>` | `/user undang staff` | Kelola anggota (owner). Undangan = tautan `t.me/<bot>?start=join_<kode>`, sekali pakai, 24 jam, hanya dibuat di chat pribadi |
 | `/stok [nama]` | `/stok salep` | *(modul stok)* Stok per produk + tanda stok menipis |
 | `/app` | – | Tombol inline `web_app` |
@@ -416,7 +419,10 @@ Semua respons berbentuk JSON `{ ok: true, data }` atau `{ ok: false, error: { co
 | GET | `/api/reports/items` | admin+ | penjualan per item |
 | POST | `/api/reports/export` | admin+ | `?period=` atau `?from&to`; bot mengirim 3 file CSV ke chat pribadi user (unduhan langsung di webview Telegram tidak andal) |
 | GET/POST/PATCH | `/api/users` | owner | tambah via telegram_id/username + role |
-| GET/PATCH | `/api/settings` | owner | nama usaha, jadwal laporan, **flag fitur** (`feature_stock`) |
+| POST · PATCH · DELETE | `/api/categories[/:id]` | admin+ | `{ name, direction, kind }`; DELETE = nonaktif; kategori bawaan tidak bisa dihapus/diganti jenis; Penjualan & Transfer tidak bisa diubah |
+| POST · PATCH · DELETE | `/api/accounts[/:id]` | owner | `{ name, type, opening_balance }`; DELETE = nonaktif, hanya bila saldo 0 dan bukan akun aktif terakhir |
+| GET · POST · PATCH · DELETE | `/api/channels[/:id]` | GET semua, ubah admin+ | `{ name }`; `code` dibuat otomatis & tetap (disimpan di `sales.channel`); Offline tidak bisa dihapus |
+| GET/PATCH | `/api/settings` | owner | *(Fase 5)* nama usaha, jadwal laporan, **flag fitur** (`feature_stock`) |
 
 Paginasi: `?page=1&limit=50` (maks 100). Validasi semua body dengan Zod dari `shared/schemas.ts`.
 
@@ -430,7 +436,7 @@ Paginasi: `?page=1&limit=50` (maks 100). Validasi semua body dengan Zod dari `sh
 | **Produk** | List, tambah/edit (HPP, harga jual, margin otomatis), riwayat harga |
 | **Stok** *(modul stok)* | Stok per produk, restock, penyesuaian, mutasi |
 | **Laporan** | Tab Laba Rugi / Arus Kas / Harian / Per Item, pemilih periode (§10), ekspor CSV |
-| **Pengaturan** | Akun kas, kategori, user & peran, jadwal laporan, **aktif/nonaktifkan modul stok** (owner) |
+| **Pengaturan** (ikon ⚙ di Beranda, admin+) | ✅ Kategori kas (masuk/keluar + jenis), akun kas/rekening (owner; saldo awal), channel penjualan. *(Fase 5:)* user & peran, jadwal laporan, modul stok |
 
 Menu yang terkait modul stok disembunyikan bila `feature_stock=0` (dibaca dari `/api/meta`).
 
@@ -476,7 +482,7 @@ Cron berjalan **setiap jam** (`0 * * * *`). Di dalam handler (semua jam & tangga
 | **1. Kas via bot** ✅ | `/masuk`, `/keluar`, parser nominal, konfirmasi, void, transfer, `/saldo`, `/akun`, peringatan saldo minus | Transaksi tersimpan & bisa dibatalkan |
 | **2. Penjualan** ✅ | `/omzet` (penjualan cepat), `/produk`, `/jual`, snapshot HPP, kas penjualan otomatis, bot di grup | Omzet & HPP tercatat, kas penjualan otomatis |
 | **3. Laporan** ✅ | Periode (§10), laba rugi, arus kas, harian, per item, `/laporan`, `/export` CSV lewat bot. Kelola user lewat `/user` (dimajukan dari Fase 5) | Angka cocok dengan perhitungan manual |
-| **4. Mini App** ✅ | Auth initData, token sesi, `redact.ts`, REST API, Beranda, Kas (+transfer), Jual (cepat & keranjang), Produk, Laporan (4 tab + kirim CSV) | Semua input & laporan bisa lewat Mini App |
+| **4. Mini App** ✅ | Auth initData, token sesi, `redact.ts`, REST API, Beranda, Kas (+transfer), Jual (cepat & keranjang), Produk, Laporan (4 tab + kirim PDF). Tambahan: Pengaturan kategori/akun kas/channel, ekspor PDF | Semua input & laporan bisa lewat Mini App |
 | **5. Multi-user & cron** | Kelola user di Mini App, redact staff di API, laporan harian/mingguan/bulanan terjadwal | Laporan terkirim otomatis tanpa dobel |
 | **6. Modul stok (opsional)** | Flag `feature_stock`, stok awal, mutasi, restock, HPP average, void pembelian, penyesuaian, notifikasi | Aktif/nonaktif tanpa merusak data; HPP benar setelah restock |
 | **7. Distribusi** | Tombol Deploy to Cloudflare, `.dev.vars.example`, workflow sync-upstream, README setup & update | Teman yang awam bisa setup < 15 menit dan update sendiri |

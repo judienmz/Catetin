@@ -100,3 +100,32 @@ export type TransferInput = z.infer<typeof TransferBody>;
 export type SaleCreateInput = z.infer<typeof SaleCreateBody>;
 export type ProductCreateInput = z.infer<typeof ProductCreateBody>;
 export type ProductPatchInput = z.infer<typeof ProductPatchBody>;
+
+// --- Data master (Pengaturan) -------------------------------------------------
+
+const categoryKind = z.enum(["other_income", "capital_in", "expense", "stock_purchase", "capital_out"]);
+const accountType = z.enum(["cash", "bank", "ewallet", "marketplace"]);
+const signedMoney = z.int().min(-MAX_AMOUNT).max(MAX_AMOUNT);
+
+export const CategoryCreateBody = z.object({
+  name: z.string().trim().min(1).max(40),
+  direction: z.enum(["in", "out"]),
+  kind: categoryKind,
+});
+export const CategoryPatchBody = z.object({
+  name: z.string().trim().min(1).max(40).optional(),
+  kind: categoryKind.optional(),
+});
+
+export const AccountCreateBody = z.object({
+  name: z.string().trim().min(1).max(40),
+  type: accountType,
+  opening_balance: signedMoney.optional(),
+});
+export const AccountPatchBody = z.object({
+  name: z.string().trim().min(1).max(40).optional(),
+  type: accountType.optional(),
+  opening_balance: signedMoney.optional(),
+});
+
+export const ChannelBody = z.object({ name: z.string().trim().min(1).max(30) });

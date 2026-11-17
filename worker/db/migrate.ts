@@ -4,6 +4,7 @@
  */
 import m0001 from "../../migrations/0001_init.sql";
 import m0002 from "../../migrations/0002_user_invites.sql";
+import m0003 from "../../migrations/0003_channels.sql";
 
 export interface Migration {
   version: number;
@@ -13,6 +14,7 @@ export interface Migration {
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, sql: m0001 },
   { version: 2, sql: m0002 },
+  { version: 3, sql: m0003 },
 ];
 
 /**

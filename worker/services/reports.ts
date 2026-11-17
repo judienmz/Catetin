@@ -127,7 +127,11 @@ export async function cashflow(db: D1Database, from: string, to: string): Promis
                      WHERE account_id = a.id AND status = 'posted' AND direction = 'in' AND tanggal BETWEEN ?1 AND ?2), 0) AS masuk,
            COALESCE((SELECT SUM(amount) FROM cash_transactions
                      WHERE account_id = a.id AND status = 'posted' AND direction = 'out' AND tanggal BETWEEN ?1 AND ?2), 0) AS keluar
-         FROM accounts a WHERE a.is_active = 1 ORDER BY a.id`,
+         FROM accounts a
+         -- akun yang sudah dihapus tetap muncul bila punya transaksi di periode ini
+         WHERE a.is_active = 1 OR EXISTS (SELECT 1 FROM cash_transactions
+                                          WHERE account_id = a.id AND status = 'posted' AND tanggal BETWEEN ?1 AND ?2)
+         ORDER BY a.id`,
       )
       .bind(from, to),
     db

@@ -11,10 +11,19 @@ const STAFF_TG = 222;
 const STRANGER_TG = 333;
 
 describe("parser kecil", () => {
-  it("extractChannel", () => {
-    expect(extractChannel(["shopee", "pak", "budi"])).toEqual({ channel: "shopee", rest: ["pak", "budi"] });
-    expect(extractChannel(["pak", "WA"])).toEqual({ channel: "whatsapp", rest: ["pak"] });
-    expect(extractChannel(["pak", "budi"])).toEqual({ channel: "offline", rest: ["pak", "budi"] });
+  it("extractChannel: code, nama, singkatan; channel buatan user", () => {
+    const chs = [
+      { code: "offline", name: "Offline" },
+      { code: "shopee", name: "Shopee" },
+      { code: "whatsapp", name: "WhatsApp" },
+      { code: "pasarpagi", name: "Pasar Pagi" },
+    ];
+    expect(extractChannel(["shopee", "pak", "budi"], chs)).toEqual({ channel: "shopee", rest: ["pak", "budi"] });
+    expect(extractChannel(["pak", "WA"], chs)).toEqual({ channel: "whatsapp", rest: ["pak"] });
+    expect(extractChannel(["pak", "budi"], chs)).toEqual({ channel: "offline", rest: ["pak", "budi"] });
+    expect(extractChannel(["pasarpagi", "x"], chs)).toEqual({ channel: "pasarpagi", rest: ["x"] });
+    // singkatan untuk channel yang sudah dihapus tidak dikenali
+    expect(extractChannel(["ig"], chs)).toEqual({ channel: "offline", rest: ["ig"] });
   });
   it("parseProductArgs", () => {
     expect(parseProductArgs(["Salep", "Kulit", "hpp", "12rb", "jual", "20rb"])).toEqual({ name: "Salep Kulit", cost: 12_000, sell: 20_000 });

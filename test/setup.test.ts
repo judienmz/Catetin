@@ -29,7 +29,7 @@ describe("runSetup", () => {
     const r = await runSetup(env, { origin: ORIGIN, apiTransformer: tg.transformer });
 
     expect(r.steps.every((s) => s.ok)).toBe(true);
-    expect(r.dbVersion).toBe(2);
+    expect(r.dbVersion).toBe(3);
     expect(r.botUsername).toBe("finbot_test_bot");
     expect(r.ownerClaimed).toBe(false);
     expect(r.claimLink).toMatch(/^https:\/\/t\.me\/finbot_test_bot\?start=claim_[0-9a-f]{32}$/);

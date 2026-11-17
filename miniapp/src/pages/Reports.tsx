@@ -55,13 +55,13 @@ export function ReportsPage() {
             disabled={busy}
             onClick={() =>
               run(async () => {
-                await api.exportCsv(range.from, range.to);
-              }, "3 file CSV dikirim ke chat bot")
+                await api.exportReport(range.from, range.to);
+              }, "Laporan PDF dikirim ke chat bot")
             }
           >
-            {busy ? "Mengirim…" : "Kirim CSV ke chat bot"}
+            {busy ? "Mengirim…" : "Kirim laporan PDF ke chat bot"}
           </button>
-          <p class="footnote center">Laba rugi, penjualan per item, dan kas. Bisa dibuka di Excel / Google Sheets.</p>
+          <p class="footnote center">Berisi laba rugi, arus kas, penjualan per item, rincian harian, dan daftar transaksi.</p>
         </>
       )}
     </div>

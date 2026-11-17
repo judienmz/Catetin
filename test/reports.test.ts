@@ -214,9 +214,14 @@ describe("bot: /laporan & /export", () => {
     expect(texts(await send(privateMessage(111, "/laporan tahun")))).toContain("Periode tidak dikenali");
   });
 
-  it("/export mengirim 3 file CSV; di grup ditolak", async () => {
-    const tg = await send(privateMessage(111, "/export"));
-    const docs = tg.calls.filter((c) => c.method === "sendDocument").map((c) => (c.payload["document"] as { filename?: string }).filename);
+  it("/export → 1 PDF; /export bulan csv → 3 CSV; di grup ditolak", async () => {
+    const names = (tg: ReturnType<typeof mockTelegram>) =>
+      tg.calls.filter((c) => c.method === "sendDocument").map((c) => (c.payload["document"] as { filename?: string }).filename);
+    const pdf = names(await send(privateMessage(111, "/export")));
+    expect(pdf).toHaveLength(1);
+    expect(pdf[0]).toMatch(/^laporan_\d{4}-\d{2}-01_\d{4}-\d{2}-\d{2}\.pdf$/);
+
+    const docs = names(await send(privateMessage(111, "/export bulan csv")));
     expect(docs).toHaveLength(3);
     expect(docs[0]).toMatch(/^labarugi_\d{4}-\d{2}-01_\d{4}-\d{2}-\d{2}\.csv$/);
     expect(docs[1]).toMatch(/^penjualan_/);

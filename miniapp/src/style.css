@@ -723,3 +723,49 @@ input:focus-visible,
     animation: none;
   }
 }
+
+/* ---------- pengaturan ---------- */
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+}
+.icon-btn svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pad {
+  padding: 10px 12px 6px;
+}
+.readonly {
+  min-height: 46px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--hint);
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--hint);
+  margin: -4px 2px 0;
+}
+.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
