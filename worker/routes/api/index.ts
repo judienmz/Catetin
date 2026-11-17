@@ -1,0 +1,237 @@
+/** REST API Mini App (ARCHITECTURE.md §11). Respons: { ok: true, data } | { ok: false, error }. */
+import { Hono } from "hono";
+import type { Env } from "../../env";
+import { AppError } from "../../lib/errors";
+import { wibDate } from "../../lib/date";
+import { validateInitData } from "../../auth/initData";
+import { issueSession } from "../../auth/session";
+import { AuthBody, CashCreateBody, CashListQuery, ListQuery, PeriodQuery, ProductCreateBody, ProductPatchBody, SaleCreateBody, TransferBody, VoidBody } from "../../../shared/schemas";
+import { getSessionSecret, getSetting } from "../../services/settings";
+import { findActiveUser } from "../../services/users";
+import { getFeatures } from "../../services/features";
+import {
+  accountBalances,
+  createCashTransaction,
+  createTransfer,
+  listAccounts,
+  listCash,
+  listCategories,
+  voidCashTransaction,
+} from "../../services/cash";
+import { createSale, getSale, listSales, voidSale } from "../../services/sales";
+import { createProduct, listProducts, updateProduct } from "../../services/products";
+import { cashflow, daily, itemsSold, profitLoss, summary } from "../../services/reports";
+import { sendExport } from "../../bot/commands/reports";
+import { ok, parseBody, parseQuery, requireAdmin, requireSession, resolvePeriod, telegramApi, type ApiEnv } from "./util";
+
+export const apiRoutes = new Hono<ApiEnv>();
+
+// ---------------------------------------------------------------------------
+// Auth (tanpa sesi)
+// ---------------------------------------------------------------------------
+
+const publicApi = new Hono<{ Bindings: Env }>();
+
+publicApi.post("/auth", async (c) => {
+  const { initData } = await parseBody(c, AuthBody);
+  const tg = await validateInitData(initData, c.env.BOT_TOKEN);
+  const user = await findActiveUser(c.env.DB, tg.id);
+  if (!user) throw new AppError("NOT_REGISTERED", "Akun Telegram kamu belum terdaftar. Minta owner mengundang kamu.", 403);
+  const session = await issueSession(user.id, await getSessionSecret(c.env));
+  return c.json({
+    ok: true,
+    data: { token: session.token, expires_at: session.expiresAt, user: { id: user.id, full_name: user.full_name, role: user.role } },
+  });
+});
+
+apiRoutes.route("/", publicApi);
+
+// ---------------------------------------------------------------------------
+// Semua endpoint di bawah ini butuh sesi
+// ---------------------------------------------------------------------------
+
+const api = new Hono<ApiEnv>();
+api.use("*", requireSession);
+
+function ymdRange(q: { from?: string | undefined; to?: string | undefined }): { from: string; to: string } {
+  const today = wibDate();
+  return { from: q.from ?? `${today.slice(0, 8)}01`, to: q.to ?? today };
+}
+
+api.get("/meta", async (c) => {
+  const db = c.env.DB;
+  const u = c.var.user;
+  const admin = u.role !== "staff";
+  const [business, features, accounts, categories] = await Promise.all([
+    getSetting(db, "business_name"),
+    getFeatures(db),
+    admin ? accountBalances(db) : listAccounts(db),
+    listCategories(db),
+  ]);
+  return ok(c, {
+    user: { id: u.id, full_name: u.full_name, role: u.role },
+    business_name: business ?? "Usaha Saya",
+    features,
+    accounts,
+    categories,
+    today: wibDate(),
+    version: c.env.APP_VERSION,
+  });
+});
+
+// --- Kas ---------------------------------------------------------------------
+
+api.get("/cash", async (c) => {
+  const q = parseQuery(c, CashListQuery);
+  return ok(c, await listCash(c.env.DB, { ...ymdRange(q), direction: q.direction, accountId: q.account_id, categoryId: q.category_id, page: q.page, limit: q.limit }));
+});
+
+api.post("/cash", async (c) => {
+  const b = await parseBody(c, CashCreateBody);
+  const tx = await createCashTransaction(
+    c.env.DB,
+    { uid: b.uid, tanggal: b.tanggal, direction: b.direction, amount: b.amount, categoryId: b.category_id, accountId: b.account_id, description: b.description ?? null, source: "miniapp" },
+    c.var.actor,
+  );
+  return ok(c, tx, 201);
+});
+
+api.post("/cash/transfer", async (c) => {
+  const b = await parseBody(c, TransferBody);
+  const t = await createTransfer(
+    c.env.DB,
+    { uid: b.uid, tanggal: b.tanggal, amount: b.amount, fromAccountId: b.from_account_id, toAccountId: b.to_account_id, description: b.description ?? null, source: "miniapp" },
+    c.var.actor,
+  );
+  return ok(c, t, 201);
+});
+
+api.post("/cash/:id/void", async (c) => {
+  const b = await parseBody(c, VoidBody);
+  return ok(c, await voidCashTransaction(c.env.DB, Number(c.req.param("id")), b.reason ?? "Dibatalkan lewat aplikasi", c.var.actor));
+});
+
+// --- Penjualan -----------------------------------------------------------------
+
+api.get("/sales", async (c) => {
+  const q = parseQuery(c, ListQuery);
+  return ok(c, await listSales(c.env.DB, { ...ymdRange(q), page: q.page, limit: q.limit }));
+});
+
+api.get("/sales/:id", async (c) => {
+  const s = await getSale(c.env.DB, Number(c.req.param("id")));
+  if (!s) throw new AppError("NOT_FOUND", "Penjualan tidak ditemukan.", 404);
+  return ok(c, s);
+});
+
+api.post("/sales", async (c) => {
+  const b = await parseBody(c, SaleCreateBody);
+  const sale = await createSale(
+    c.env.DB,
+    {
+      uid: b.uid,
+      tanggal: b.tanggal,
+      channel: b.channel,
+      customerName: b.customer_name ?? null,
+      items: b.items.map((i) =>
+        "product_id" in i
+          ? { productId: i.product_id, qty: i.qty, ...(i.sell_price !== undefined ? { sellPrice: i.sell_price } : {}) }
+          : { itemName: i.item_name, qty: i.qty, sellPrice: i.sell_price, costPrice: i.cost_price ?? 0 },
+      ),
+      discount: b.discount ?? 0,
+      accountId: b.account_id,
+      note: b.note ?? null,
+      source: "miniapp",
+    },
+    c.var.actor,
+  );
+  return ok(c, sale, 201);
+});
+
+api.post("/sales/:id/void", async (c) => {
+  const b = await parseBody(c, VoidBody);
+  return ok(c, await voidSale(c.env.DB, Number(c.req.param("id")), b.reason ?? "Dibatalkan lewat aplikasi", c.var.actor, { voidDate: wibDate() }));
+});
+
+// --- Produk ------------------------------------------------------------------
+
+api.get("/products", async (c) => {
+  const q = c.req.query("q");
+  const active = c.req.query("active") !== "0";
+  return ok(c, await listProducts(c.env.DB, { q, activeOnly: active }));
+});
+
+api.post("/products", async (c) => {
+  requireAdmin(c);
+  const b = await parseBody(c, ProductCreateBody);
+  return ok(c, await createProduct(c.env.DB, { name: b.name, costPrice: b.cost_price, sellPrice: b.sell_price, unit: b.unit, sku: b.sku ?? null }, c.var.actor), 201);
+});
+
+api.patch("/products/:id", async (c) => {
+  requireAdmin(c);
+  const b = await parseBody(c, ProductPatchBody);
+  return ok(
+    c,
+    await updateProduct(
+      c.env.DB,
+      Number(c.req.param("id")),
+      {
+        ...(b.name !== undefined ? { name: b.name } : {}),
+        ...(b.cost_price !== undefined ? { costPrice: b.cost_price } : {}),
+        ...(b.sell_price !== undefined ? { sellPrice: b.sell_price } : {}),
+      },
+      c.var.actor,
+    ),
+  );
+});
+
+// --- Laporan -----------------------------------------------------------------
+
+api.get("/reports/summary", async (c) => {
+  const features = await getFeatures(c.env.DB);
+  const s = await summary(c.env.DB, wibDate(), { stock: features.stock });
+  if (c.var.user.role === "staff") {
+    // Staff: hanya omzet & jumlah transaksi (tanpa saldo, biaya, atau laba).
+    return ok(c, {
+      today: { omzet: s.today.omzet, jmlTransaksi: s.today.jmlTransaksi },
+      month: { omzet: s.month.omzet, jmlTransaksi: s.month.jmlTransaksi },
+      chart: s.chart.map((d) => ({ tanggal: d.tanggal, omzet: d.omzet })),
+      topItems: s.topItems,
+    });
+  }
+  return ok(c, s);
+});
+
+api.get("/reports/profit-loss", async (c) => {
+  requireAdmin(c);
+  const p = resolvePeriod(parseQuery(c, PeriodQuery));
+  return ok(c, { period: p, ...(await profitLoss(c.env.DB, p.from, p.to)) });
+});
+
+api.get("/reports/cashflow", async (c) => {
+  requireAdmin(c);
+  const p = resolvePeriod(parseQuery(c, PeriodQuery));
+  return ok(c, { period: p, ...(await cashflow(c.env.DB, p.from, p.to)) });
+});
+
+api.get("/reports/daily", async (c) => {
+  requireAdmin(c);
+  const p = resolvePeriod(parseQuery(c, PeriodQuery));
+  return ok(c, { period: p, rows: await daily(c.env.DB, p.from, p.to) });
+});
+
+api.get("/reports/items", async (c) => {
+  requireAdmin(c);
+  const p = resolvePeriod(parseQuery(c, PeriodQuery));
+  return ok(c, { period: p, rows: await itemsSold(c.env.DB, p.from, p.to, 100) });
+});
+
+/** Kirim CSV ke chat pribadi user lewat bot (unduhan langsung di webview Telegram tidak andal). */
+api.post("/reports/export", async (c) => {
+  requireAdmin(c);
+  const p = resolvePeriod(parseQuery(c, PeriodQuery));
+  await sendExport(telegramApi(c.env), c.var.user.telegram_id, c.env.DB, p);
+  return ok(c, { sent: true, period: p });
+});
+
+apiRoutes.route("/", api);

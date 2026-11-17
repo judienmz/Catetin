@@ -343,3 +343,35 @@ export async function voidSale(
   if ((results[0]!.meta.changes ?? 0) === 0) throw new AppError("ALREADY_VOID", "Penjualan ini sudah dibatalkan.", 409);
   return (await getSale(db, id))!;
 }
+
+// ---------------------------------------------------------------------------
+// Daftar penjualan (Mini App)
+// ---------------------------------------------------------------------------
+
+export interface SaleListRow extends Sale {
+  account_name: string | null;
+  item_count: number;
+  first_item: string | null;
+}
+
+export async function listSales(
+  db: D1Database,
+  f: { from: string; to: string; page?: number; limit?: number },
+): Promise<{ items: SaleListRow[]; hasMore: boolean }> {
+  if (!YMD.test(f.from) || !YMD.test(f.to)) throw new AppError("INVALID_DATE", "Format tanggal harus YYYY-MM-DD.");
+  const limit = Math.min(f.limit ?? 50, 100);
+  const offset = ((f.page ?? 1) - 1) * limit;
+  const { results } = await db
+    .prepare(
+      `SELECT s.*, a.name AS account_name,
+              (SELECT COUNT(*) FROM sale_items WHERE sale_id = s.id) AS item_count,
+              (SELECT item_name FROM sale_items WHERE sale_id = s.id ORDER BY id LIMIT 1) AS first_item
+       FROM sales s LEFT JOIN accounts a ON a.id = s.account_id
+       WHERE s.status IN ('posted','void') AND s.tanggal BETWEEN ?1 AND ?2
+       ORDER BY s.tanggal DESC, s.id DESC
+       LIMIT ?3 OFFSET ?4`,
+    )
+    .bind(f.from, f.to, limit + 1, offset)
+    .all<SaleListRow>();
+  return { items: results.slice(0, limit), hasMore: results.length > limit };
+}

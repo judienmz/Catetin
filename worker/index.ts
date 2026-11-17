@@ -3,12 +3,14 @@ import type { Env } from "./env";
 import { AppError } from "./lib/errors";
 import { setupRoutes } from "./routes/setup";
 import { webhookRoutes } from "./routes/webhook";
+import { apiRoutes } from "./routes/api";
 import { cleanup } from "./services/maintenance";
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.route("/", setupRoutes);
 app.route("/", webhookRoutes);
+app.route("/api", apiRoutes);
 
 app.all("/api/*", (c) => c.json({ ok: false, error: { code: "NOT_FOUND", message: "Endpoint tidak ditemukan." } }, 404));
 

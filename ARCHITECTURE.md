@@ -30,7 +30,7 @@ Bot Telegram dan Telegram Mini App untuk mencatat keuangan usaha kecil. Dipakai 
 | Router HTTP | Hono |
 | Bot | grammY (`webhookCallback(bot, "cloudflare-mod")`) |
 | Database | Cloudflare D1 (SQLite) |
-| Mini App | React + Vite + Tailwind, `window.Telegram.WebApp` |
+| Mini App | Preact + Vite (JSX lewat oxc), CSS biasa dengan variabel tema Telegram, `window.Telegram.WebApp` (±17 KB gzip) |
 | Hosting Mini App | Workers Static Assets (satu Worker, satu domain `*.workers.dev`) |
 | Jadwal | Cron Triggers (laporan terjadwal, bersih-bersih sesi) |
 | Validasi | Zod (shared antara API & Mini App) |
@@ -112,7 +112,8 @@ finbot/
    └─ src/
       ├─ main.tsx, App.tsx
       ├─ api.ts               # fetch wrapper + header Authorization
-      ├─ pages/               # Dashboard, Kas, Penjualan, Produk, Stok, Laporan, Pengaturan
+      ├─ tg.ts, format.ts, ui.tsx  # pembungkus Telegram, format rupiah/tanggal, komponen & hook bersama
+      ├─ pages/               # Home, Cash, Sales, Products, Reports (Stok & Pengaturan menyusul)
       └─ components/
 ```
 
@@ -408,12 +409,12 @@ Semua respons berbentuk JSON `{ ok: true, data }` atau `{ ok: false, error: { co
 | POST | `/api/purchases/:id/void` | admin+ | *(modul stok)* |
 | GET | `/api/stock/movements` | admin+ | *(modul stok)* `?product_id&from&to` |
 | POST | `/api/products/:id/adjust` | admin+ | *(modul stok)* `{ qty_change, note }` |
-| GET | `/api/reports/summary` | admin+ | dashboard |
+| GET | `/api/reports/summary` | semua | dashboard; staff hanya menerima omzet, jumlah transaksi, grafik omzet, item terlaris |
 | GET | `/api/reports/profit-loss` | admin+ | `?period=` atau `?from&to` |
 | GET | `/api/reports/cashflow` | admin+ | `?period=` atau `?from&to` |
 | GET | `/api/reports/daily` | admin+ | tren per hari |
 | GET | `/api/reports/items` | admin+ | penjualan per item |
-| GET | `/api/reports/export.csv` | admin+ | `?type=sales|cash|pl&from&to` |
+| POST | `/api/reports/export` | admin+ | `?period=` atau `?from&to`; bot mengirim 3 file CSV ke chat pribadi user (unduhan langsung di webview Telegram tidak andal) |
 | GET/POST/PATCH | `/api/users` | owner | tambah via telegram_id/username + role |
 | GET/PATCH | `/api/settings` | owner | nama usaha, jadwal laporan, **flag fitur** (`feature_stock`) |
 
@@ -439,7 +440,8 @@ Menu yang terkait modul stok disembunyikan bila `feature_stock=0` (dibaca dari `
 - Panggil `HapticFeedback` saat sukses atau error, dan `expand()` saat dibuka.
 - Input nominal pakai keyboard angka (`inputmode="numeric"`) dengan format ribuan saat diketik.
 - Form membuat `uid` saat dibuka; submit ulang memakai `uid` yang sama.
-- Bundle sekecil mungkin; pertimbangkan Preact jika ukuran React terlalu besar.
+- Bundle sekecil mungkin (Preact). Navigasi = tab bawah + tumpukan layar di memori (bukan hash router, karena Telegram memakai hash URL untuk parameter peluncuran).
+- Di luar klien Telegram (mis. browser biasa saat pengembangan), MainButton/BackButton diganti tombol biasa di halaman.
 
 ## 13. Cron (`scheduled`)
 
@@ -474,7 +476,7 @@ Cron berjalan **setiap jam** (`0 * * * *`). Di dalam handler (semua jam & tangga
 | **1. Kas via bot** ✅ | `/masuk`, `/keluar`, parser nominal, konfirmasi, void, transfer, `/saldo`, `/akun`, peringatan saldo minus | Transaksi tersimpan & bisa dibatalkan |
 | **2. Penjualan** ✅ | `/omzet` (penjualan cepat), `/produk`, `/jual`, snapshot HPP, kas penjualan otomatis, bot di grup | Omzet & HPP tercatat, kas penjualan otomatis |
 | **3. Laporan** ✅ | Periode (§10), laba rugi, arus kas, harian, per item, `/laporan`, `/export` CSV lewat bot. Kelola user lewat `/user` (dimajukan dari Fase 5) | Angka cocok dengan perhitungan manual |
-| **4. Mini App** | Auth initData, Dashboard, Kas, Penjualan, Produk, Laporan | Semua input & laporan bisa lewat Mini App |
+| **4. Mini App** ✅ | Auth initData, token sesi, `redact.ts`, REST API, Beranda, Kas (+transfer), Jual (cepat & keranjang), Produk, Laporan (4 tab + kirim CSV) | Semua input & laporan bisa lewat Mini App |
 | **5. Multi-user & cron** | Kelola user di Mini App, redact staff di API, laporan harian/mingguan/bulanan terjadwal | Laporan terkirim otomatis tanpa dobel |
 | **6. Modul stok (opsional)** | Flag `feature_stock`, stok awal, mutasi, restock, HPP average, void pembelian, penyesuaian, notifikasi | Aktif/nonaktif tanpa merusak data; HPP benar setelah restock |
 | **7. Distribusi** | Tombol Deploy to Cloudflare, `.dev.vars.example`, workflow sync-upstream, README setup & update | Teman yang awam bisa setup < 15 menit dan update sendiri |

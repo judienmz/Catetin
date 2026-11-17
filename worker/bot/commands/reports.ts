@@ -1,11 +1,11 @@
 /** /laporan & /export (ARCHITECTURE.md §8, §10). */
-import { InputFile, type Bot } from "grammy/web";
+import { InputFile, type Api, type Bot } from "grammy/web";
 import type { BotContext } from "../bot";
 import { html, rupiah, tanggalPendek } from "../format";
 import { canSeeCost, guard, isAdmin } from "../drafts";
 import { daysInclusive, parsePeriod, type Period } from "../../lib/date";
-import { toCsv } from "../../lib/csv";
-import { cashflow, daily, exportCash, exportSales, itemsSold, profitLoss, EXPORT_ROW_LIMIT } from "../../services/reports";
+import { buildExport } from "../../services/exports";
+import { cashflow, daily, itemsSold, profitLoss, EXPORT_ROW_LIMIT } from "../../services/reports";
 
 const PERIOD_HELP = [
   "Periode: <code>hari</code> (default), <code>kemarin</code>, <code>minggu</code>, <code>minggu lalu</code>, <code>bulan</code>, <code>bulan lalu</code>,",
@@ -102,36 +102,21 @@ async function exportCmd(ctx: BotContext): Promise<void> {
     await ctx.reply(`Periode tidak dikenali.\n\n${PERIOD_HELP}`, { parse_mode: "HTML" });
     return;
   }
-  const db = ctx.env.DB;
-  const [sales, cash, pl] = await Promise.all([exportSales(db, p.from, p.to), exportCash(db, p.from, p.to), profitLoss(db, p.from, p.to)]);
-  const suffix = p.from === p.to ? p.from : `${p.from}_${p.to}`;
+  await sendExport(ctx.api, ctx.chat.id, ctx.env.DB, p);
+}
 
-  const salesCsv = toCsv(
-    ["Tanggal", "Invoice", "Channel", "Item", "Qty", "Harga", "Subtotal item", "HPP/unit", "HPP item", "Diskon", "Total invoice", "Akun", "Catatan"],
-    sales.map((r) => [r.tanggal, r.invoice_no, r.channel, r.item_name, r.qty, r.sell_price, r.line_total, r.cost_price, r.hpp, r.discount, r.total, r.akun, r.note]),
-  );
-  const cashCsv = toCsv(
-    ["Tanggal", "Arah", "Kategori", "Jenis", "Akun", "Nominal", "Keterangan", "Sumber"],
-    cash.map((r) => [r.tanggal, r.direction === "in" ? "Masuk" : "Keluar", r.kategori, r.jenis, r.akun, r.amount, r.description, r.ref_type]),
-  );
-  const plRows: unknown[][] = [
-    ["Omzet", pl.omzet],
-    ["HPP", pl.hpp],
-    ["Laba kotor", pl.labaKotor],
-    ["Pendapatan lain", pl.pendapatanLain],
-    ...pl.biayaPerKategori.map((c) => [`Biaya: ${c.name}`, c.total]),
-    ["Total biaya operasional", pl.biaya],
-    ["Laba bersih", pl.labaBersih],
-  ];
-  const plCsv = toCsv(["Pos", "Nominal"], plRows);
-
-  await ctx.replyWithDocument(csvFile(plCsv, `labarugi_${suffix}.csv`), {
-    caption: `Laporan ${p.label} (${rangeLabel(p)}): laba rugi, penjualan, dan kas.`,
-  });
-  await ctx.replyWithDocument(csvFile(salesCsv, `penjualan_${suffix}.csv`));
-  await ctx.replyWithDocument(csvFile(cashCsv, `kas_${suffix}.csv`));
-  if (sales.length >= EXPORT_ROW_LIMIT || cash.length >= EXPORT_ROW_LIMIT) {
-    await ctx.reply(`⚠️ Data terpotong di ${EXPORT_ROW_LIMIT} baris. Ekspor per periode yang lebih pendek.`);
+/** Kirim 3 file CSV ke sebuah chat. Dipakai /export dan tombol Ekspor di Mini App. */
+export async function sendExport(api: Api, chatId: number, db: D1Database, p: Period): Promise<void> {
+  const bundle = await buildExport(db, p.from, p.to);
+  for (const [i, f] of bundle.files.entries()) {
+    await api.sendDocument(
+      chatId,
+      csvFile(f.content, f.name),
+      i === 0 ? { caption: `Laporan ${p.label} (${rangeLabel(p)}): laba rugi, penjualan, dan kas.` } : {},
+    );
+  }
+  if (bundle.truncated) {
+    await api.sendMessage(chatId, `⚠️ Data terpotong di ${EXPORT_ROW_LIMIT} baris. Ekspor per periode yang lebih pendek.`);
   }
 }
 

@@ -220,3 +220,7 @@ export async function updateUser(db: D1Database, userId: number, change: UserCha
   ]);
   return results[2]!.results[0] as User;
 }
+
+export async function getActiveUserById(db: D1Database, id: number): Promise<User | null> {
+  return db.prepare("SELECT * FROM users WHERE id = ?1 AND is_active = 1").bind(id).first<User>();
+}

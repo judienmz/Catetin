@@ -383,3 +383,54 @@ export async function voidCashTransaction(
   if (changed === 0) throw new AppError("ALREADY_VOID", "Transaksi ini sudah dibatalkan.", 409);
   return results[results.length - 1]!.results as CashTransaction[];
 }
+
+// ---------------------------------------------------------------------------
+// Daftar transaksi (Mini App)
+// ---------------------------------------------------------------------------
+
+export interface CashListRow extends CashTransaction {
+  category_name: string;
+  category_kind: CategoryKind;
+  account_name: string;
+  created_by_name: string | null;
+}
+
+export interface CashListFilter {
+  from: string;
+  to: string;
+  direction?: Direction;
+  accountId?: number;
+  categoryId?: number;
+  page?: number;
+  limit?: number;
+}
+
+/** Transaksi kas dalam rentang tanggal (termasuk yang void, ditandai statusnya), terbaru dulu. */
+export async function listCash(db: D1Database, f: CashListFilter): Promise<{ items: CashListRow[]; hasMore: boolean }> {
+  assertDate(f.from);
+  assertDate(f.to);
+  const limit = Math.min(f.limit ?? 50, 100);
+  const offset = ((f.page ?? 1) - 1) * limit;
+  const { results } = await db
+    .prepare(
+      `SELECT t.*, c.name AS category_name, c.kind AS category_kind, a.name AS account_name, u.full_name AS created_by_name
+       FROM cash_transactions t
+       JOIN categories c ON c.id = t.category_id
+       JOIN accounts a ON a.id = t.account_id
+       LEFT JOIN users u ON u.id = t.created_by
+       WHERE t.status IN ('posted','void') AND t.tanggal BETWEEN ?1 AND ?2
+         AND (?3 IS NULL OR t.direction = ?3)
+         AND (?4 IS NULL OR t.account_id = ?4)
+         AND (?5 IS NULL OR t.category_id = ?5)
+       ORDER BY t.tanggal DESC, t.id DESC
+       LIMIT ?6 OFFSET ?7`,
+    )
+    .bind(f.from, f.to, f.direction ?? null, f.accountId ?? null, f.categoryId ?? null, limit + 1, offset)
+    .all<CashListRow>();
+  return { items: results.slice(0, limit), hasMore: results.length > limit };
+}
+
+/** Semua kategori aktif (untuk meta Mini App). */
+export async function listCategories(db: D1Database): Promise<Category[]> {
+  return (await db.prepare("SELECT * FROM categories WHERE is_active = 1 ORDER BY direction, id").all<Category>()).results;
+}

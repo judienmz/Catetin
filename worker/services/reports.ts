@@ -3,7 +3,7 @@
  * Hanya status 'posted'. Rentang tanggal inklusif, format 'YYYY-MM-DD' WIB.
  */
 import { AppError } from "../lib/errors";
-import { daysInclusive, isValidYmd, MAX_PERIOD_DAYS } from "../lib/date";
+import { addDays, daysInclusive, isValidYmd, MAX_PERIOD_DAYS } from "../lib/date";
 import type { CategoryKind, Direction } from "./cash";
 
 function assertRange(from: string, to: string): void {
@@ -302,4 +302,93 @@ export async function exportCash(db: D1Database, from: string, to: string): Prom
     .bind(from, to, EXPORT_ROW_LIMIT)
     .all<CashExportRow>();
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard (§10.5)
+// ---------------------------------------------------------------------------
+
+export interface PeriodSummary {
+  from: string;
+  to: string;
+  omzet: number;
+  hpp: number;
+  labaKotor: number;
+  biaya: number;
+  labaBersih: number;
+  jmlTransaksi: number;
+}
+
+export interface Summary {
+  today: PeriodSummary;
+  month: PeriodSummary;
+  /** Bulan lalu pada rentang tanggal yang sama (1 s.d. tanggal hari ini) untuk perbandingan adil. */
+  prevMonth: PeriodSummary;
+  saldoKas: number;
+  /** 30 hari terakhir, termasuk hari tanpa transaksi (nol). */
+  chart: { tanggal: string; omzet: number; labaBersih: number }[];
+  topItems: ItemRow[];
+  lowStock: { id: number; name: string; stock: number; min_stock: number }[] | null;
+}
+
+function toSummary(pl: ProfitLoss): PeriodSummary {
+  return {
+    from: pl.from,
+    to: pl.to,
+    omzet: pl.omzet,
+    hpp: pl.hpp,
+    labaKotor: pl.labaKotor,
+    biaya: pl.biaya,
+    labaBersih: pl.labaBersih,
+    jmlTransaksi: pl.jmlTransaksi,
+  };
+}
+
+export async function summary(db: D1Database, today: string, opts: { stock: boolean }): Promise<Summary> {
+  const monthStart = `${today.slice(0, 8)}01`;
+  const prevEnd = addDays(monthStart, -1);
+  const prevStart = `${prevEnd.slice(0, 8)}01`;
+  const dayOfMonth = Number(today.slice(8, 10));
+  const prevTo = dayOfMonth >= Number(prevEnd.slice(8, 10)) ? prevEnd : `${prevEnd.slice(0, 8)}${String(dayOfMonth).padStart(2, "0")}`;
+  const chartFrom = addDays(today, -29);
+
+  const [t, m, p, days, top, bal, low] = await Promise.all([
+    profitLoss(db, today, today),
+    profitLoss(db, monthStart, today),
+    profitLoss(db, prevStart, prevTo),
+    daily(db, chartFrom, today),
+    itemsSold(db, monthStart, today, 5),
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(a.opening_balance), 0) +
+                COALESCE((SELECT SUM(CASE direction WHEN 'in' THEN amount ELSE -amount END)
+                          FROM cash_transactions t JOIN accounts a2 ON a2.id = t.account_id
+                          WHERE t.status = 'posted' AND a2.is_active = 1), 0) AS saldo
+         FROM accounts a WHERE a.is_active = 1`,
+      )
+      .first<{ saldo: number }>(),
+    opts.stock
+      ? db
+          .prepare("SELECT id, name, stock, min_stock FROM products WHERE is_active = 1 AND track_stock = 1 AND stock <= min_stock ORDER BY stock LIMIT 10")
+          .all<{ id: number; name: string; stock: number; min_stock: number }>()
+      : Promise.resolve(null),
+  ]);
+
+  const byDay = new Map(days.map((d) => [d.tanggal, d]));
+  const chart: Summary["chart"] = [];
+  for (let i = 0; i < 30; i++) {
+    const d = addDays(chartFrom, i);
+    const row = byDay.get(d);
+    chart.push({ tanggal: d, omzet: row?.omzet ?? 0, labaBersih: row?.labaBersih ?? 0 });
+  }
+
+  return {
+    today: toSummary(t),
+    month: toSummary(m),
+    prevMonth: toSummary(p),
+    saldoKas: bal?.saldo ?? 0,
+    chart,
+    topItems: top,
+    lowStock: low ? low.results : null,
+  };
 }
