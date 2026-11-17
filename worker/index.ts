@@ -4,7 +4,8 @@ import { AppError } from "./lib/errors";
 import { setupRoutes } from "./routes/setup";
 import { webhookRoutes } from "./routes/webhook";
 import { apiRoutes } from "./routes/api";
-import { cleanup } from "./services/maintenance";
+import { telegramApi } from "./routes/api/util";
+import { runScheduled } from "./bot/scheduled";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -27,11 +28,11 @@ app.onError((err, c) => {
 
 export default {
   fetch: app.fetch,
-  async scheduled(_controller, env, ctx) {
+  async scheduled(controller, env, ctx) {
     ctx.waitUntil(
-      cleanup(env.DB).catch((e: unknown) => {
+      runScheduled(env, telegramApi(env), new Date(controller.scheduledTime)).catch((e: unknown) => {
         // Sebelum /setup pertama tabel belum ada; jangan sampai cron error terus.
-        console.warn("cleanup dilewati", e);
+        console.warn("cron dilewati", e);
       }),
     );
   },

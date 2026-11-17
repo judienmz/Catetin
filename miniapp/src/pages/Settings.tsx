@@ -1,8 +1,9 @@
-/** Pengaturan: kategori kas, akun kas (rekening/sumber kas), channel penjualan. */
+/** Pengaturan: (owner) usaha, laporan otomatis, user; kategori kas, akun kas, channel penjualan. */
 import { useState } from "preact/hooks";
 import { api, type Account, type Category, type CategoryKind, type Channel, type Direction } from "../api";
 import { rupiah } from "../format";
 import { confirmDialog } from "../tg";
+import { OwnerSections } from "./SettingsOwner";
 import { Chips, Field, MoneyInput, PrimaryAction, Row, Section, Segmented, useApp, useSaver, type AppCtx } from "../ui";
 
 export function openSettings(app: AppCtx): void {
@@ -40,6 +41,7 @@ function SettingsPage() {
 
   return (
     <div>
+      {isOwner ? <OwnerSections /> : null}
       <Section
         title="Kategori kas"
         action={

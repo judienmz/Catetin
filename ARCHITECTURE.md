@@ -228,6 +228,7 @@ Repo hasil tombol Deploy adalah **repo baru, bukan fork**, jadi tidak ada tombol
 | `/produk` · `/produk tambah <nama> hpp <x> jual <y>` · `/produk ubah <nama> [hpp <x>] [jual <y>]` | `/produk tambah Salep hpp 12rb jual 20rb` | Daftar (semua; HPP hanya admin+ di chat pribadi) · tambah/ubah (admin+) |
 | `/laporan [periode]` | `/laporan bulan` · `/laporan minggu lalu` · `/laporan 1/11 15/11` | Omzet, HPP, laba kotor, biaya per kategori, laba bersih, kas per akun, 5 item terlaris, rincian per hari (≤ 14 hari). Admin+. Di grup tanpa HPP/laba |
 | `/export [periode] [csv]` | `/export bulan lalu` · `/export bulan csv` | 1 file **PDF** laporan keuangan (ringkasan, laba rugi, arus kas, per item, harian, daftar penjualan & kas); tambah `csv` untuk 3 file spreadsheet. Default bulan ini. Admin+, chat pribadi saja |
+| `/jadwal` · `/jadwal grup` · `/jadwal pribadi` | `/jadwal grup` (di grup) | Lihat jadwal laporan otomatis & pilih tujuannya (owner) |
 | `/user` · `/user undang [staff\|admin]` · `/user tambah [staff\|admin]` (reply) · `/user ubah\|nonaktif\|aktif <nama\|@username>` | `/user undang staff` | Kelola anggota (owner). Undangan = tautan `t.me/<bot>?start=join_<kode>`, sekali pakai, 24 jam, hanya dibuat di chat pribadi |
 | `/stok [nama]` | `/stok salep` | *(modul stok)* Stok per produk + tanda stok menipis |
 | `/app` | – | Tombol inline `web_app` |
@@ -418,11 +419,12 @@ Semua respons berbentuk JSON `{ ok: true, data }` atau `{ ok: false, error: { co
 | GET | `/api/reports/daily` | admin+ | tren per hari |
 | GET | `/api/reports/items` | admin+ | penjualan per item |
 | POST | `/api/reports/export` | admin+ | `?period=` atau `?from&to`; bot mengirim 3 file CSV ke chat pribadi user (unduhan langsung di webview Telegram tidak andal) |
-| GET/POST/PATCH | `/api/users` | owner | tambah via telegram_id/username + role |
+| GET · PATCH | `/api/users[/:id]` | owner | daftar user; PATCH `{ role?: admin\|staff, is_active? }` (owner & diri sendiri tidak bisa diubah) |
+| POST | `/api/users/invite` | owner | `{ role }` → `{ link: t.me/<bot>?start=join_<kode>, expires_at }` (sekali pakai, 24 jam) |
 | POST · PATCH · DELETE | `/api/categories[/:id]` | admin+ | `{ name, direction, kind }`; DELETE = nonaktif; kategori bawaan tidak bisa dihapus/diganti jenis; Penjualan & Transfer tidak bisa diubah |
 | POST · PATCH · DELETE | `/api/accounts[/:id]` | owner | `{ name, type, opening_balance }`; DELETE = nonaktif, hanya bila saldo 0 dan bukan akun aktif terakhir |
 | GET · POST · PATCH · DELETE | `/api/channels[/:id]` | GET semua, ubah admin+ | `{ name }`; `code` dibuat otomatis & tetap (disimpan di `sales.channel`); Offline tidak bisa dihapus |
-| GET/PATCH | `/api/settings` | owner | *(Fase 5)* nama usaha, jadwal laporan, **flag fitur** (`feature_stock`) |
+| GET · PATCH | `/api/settings` | GET admin+, PATCH owner | `{ business_name, daily/weekly/monthly_report_enabled, report_hour, report_target: "owner" }` (grup dipilih lewat `/jadwal grup`). *(Fase 6:)* flag `feature_stock` |
 
 Paginasi: `?page=1&limit=50` (maks 100). Validasi semua body dengan Zod dari `shared/schemas.ts`.
 
@@ -436,7 +438,7 @@ Paginasi: `?page=1&limit=50` (maks 100). Validasi semua body dengan Zod dari `sh
 | **Produk** | List, tambah/edit (HPP, harga jual, margin otomatis), riwayat harga |
 | **Stok** *(modul stok)* | Stok per produk, restock, penyesuaian, mutasi |
 | **Laporan** | Tab Laba Rugi / Arus Kas / Harian / Per Item, pemilih periode (§10), ekspor CSV |
-| **Pengaturan** (ikon ⚙ di Beranda, admin+) | ✅ Kategori kas (masuk/keluar + jenis), akun kas/rekening (owner; saldo awal), channel penjualan. *(Fase 5:)* user & peran, jadwal laporan, modul stok |
+| **Pengaturan** (ikon ⚙ di Beranda, admin+) | Owner: nama usaha, laporan otomatis (harian/mingguan/bulanan, jam, tujuan), user (undang lewat tautan + bagikan, ubah peran, nonaktifkan). Admin+: kategori kas (masuk/keluar + jenis), channel penjualan. Owner: akun kas/rekening (saldo awal). *(Fase 6:)* modul stok |
 
 Menu yang terkait modul stok disembunyikan bila `feature_stock=0` (dibaca dari `/api/meta`).
 
@@ -455,11 +457,12 @@ Cron berjalan **setiap jam** (`0 * * * *`). Di dalam handler (semua jam & tangga
 - Jika jam sekarang = `daily_report_hour_wib`:
   - `daily_report_enabled=1` → kirim ringkasan **hari ini**.
   - Hari Senin dan `weekly_report_enabled=1` → kirim ringkasan **minggu lalu** (Senin–Minggu) + perbandingan dengan minggu sebelumnya.
-  - Tanggal 1 dan `monthly_report_enabled=1` → kirim ringkasan **bulan lalu** + perbandingan dengan bulan sebelumnya.
-  - Tujuan: owner, atau `daily_report_chat_id` bila diisi (mis. grup).
-- Modul stok aktif → kirim peringatan stok menipis (maks 1x/hari).
+  - Tanggal 1 dan `monthly_report_enabled=1` → kirim ringkasan **bulan lalu** + perbandingan dengan bulan sebelumnya, **ditambah file PDF** (§ ekspor) yang selalu dikirim ke chat pribadi owner.
+  - Tujuan: chat pribadi owner (lengkap dengan HPP/laba), atau grup yang dipilih owner lewat `/jadwal grup` (`daily_report_chat_id` + `daily_report_chat_title`; tanpa HPP/laba). `/jadwal pribadi` atau tombol di Mini App mengembalikan ke owner.
+- *(Fase 6)* Modul stok aktif → kirim peringatan stok menipis (maks 1x/hari).
 - Bersihkan `bot_sessions` yang kedaluwarsa dan `processed_updates` yang lebih dari 3 hari.
-- Cegah kiriman dobel: simpan `last_daily_report_date` / `last_weekly_report_date` / `last_monthly_report_date` di `settings` dan lewati bila sudah terkirim.
+- Cegah kiriman dobel: tiap jenis laporan **diklaim dulu** secara atomik (`UPDATE settings SET value = <hari ini> WHERE key = 'last_<jenis>_report_date' AND value <> <hari ini>`); hanya pemenang klaim yang mengirim. Bila pengiriman gagal (mis. bot dikeluarkan dari grup), kegagalan dicatat di log Worker dan laporan itu dilewati sampai hari berikutnya.
+- Implementasi: `worker/bot/scheduled.ts` (`runScheduled(env, api, now)`), dipanggil dari `scheduled()` di `worker/index.ts` dengan `controller.scheduledTime`.
 
 ## 14. Konvensi Kode (untuk Claude Code)
 
@@ -483,7 +486,7 @@ Cron berjalan **setiap jam** (`0 * * * *`). Di dalam handler (semua jam & tangga
 | **2. Penjualan** ✅ | `/omzet` (penjualan cepat), `/produk`, `/jual`, snapshot HPP, kas penjualan otomatis, bot di grup | Omzet & HPP tercatat, kas penjualan otomatis |
 | **3. Laporan** ✅ | Periode (§10), laba rugi, arus kas, harian, per item, `/laporan`, `/export` CSV lewat bot. Kelola user lewat `/user` (dimajukan dari Fase 5) | Angka cocok dengan perhitungan manual |
 | **4. Mini App** ✅ | Auth initData, token sesi, `redact.ts`, REST API, Beranda, Kas (+transfer), Jual (cepat & keranjang), Produk, Laporan (4 tab + kirim PDF). Tambahan: Pengaturan kategori/akun kas/channel, ekspor PDF | Semua input & laporan bisa lewat Mini App |
-| **5. Multi-user & cron** | Kelola user di Mini App, redact staff di API, laporan harian/mingguan/bulanan terjadwal | Laporan terkirim otomatis tanpa dobel |
+| **5. Multi-user & cron** ✅ | Kelola user di Mini App, redact staff di API, nama usaha, laporan harian/mingguan/bulanan terjadwal (+PDF bulanan), `/jadwal` | Laporan terkirim otomatis tanpa dobel |
 | **6. Modul stok (opsional)** | Flag `feature_stock`, stok awal, mutasi, restock, HPP average, void pembelian, penyesuaian, notifikasi | Aktif/nonaktif tanpa merusak data; HPP benar setelah restock |
 | **7. Distribusi** | Tombol Deploy to Cloudflare, `.dev.vars.example`, workflow sync-upstream, README setup & update | Teman yang awam bisa setup < 15 menit dan update sendiri |
 

@@ -24,6 +24,7 @@ interface TgWebApp {
   BackButton: { show(): void; hide(): void; onClick(cb: () => void): void; offClick(cb: () => void): void };
   HapticFeedback?: { notificationOccurred(t: "success" | "error" | "warning"): void; selectionChanged(): void };
   showConfirm?(msg: string, cb: (ok: boolean) => void): void;
+  openTelegramLink?(url: string): void;
   close(): void;
 }
 
@@ -58,4 +59,19 @@ export function confirmDialog(message: string): Promise<boolean> {
     return new Promise((resolve) => tg.showConfirm!(message, resolve));
   }
   return Promise.resolve(window.confirm(message));
+}
+
+/** Bagikan teks/tautan lewat pemilih chat Telegram; di luar Telegram salin ke clipboard. */
+export async function shareLink(url: string, text: string): Promise<"shared" | "copied" | "failed"> {
+  const share = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
+  if (inTelegramClient && tg?.openTelegramLink) {
+    tg.openTelegramLink(share);
+    return "shared";
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    return "copied";
+  } catch {
+    return "failed";
+  }
 }

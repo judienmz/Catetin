@@ -129,3 +129,20 @@ export const AccountPatchBody = z.object({
 });
 
 export const ChannelBody = z.object({ name: z.string().trim().min(1).max(30) });
+
+// --- Pengaturan usaha & user (owner) --------------------------------------------
+
+export const SettingsPatchBody = z.object({
+  business_name: z.string().trim().min(1).max(60).optional(),
+  daily_report_enabled: z.boolean().optional(),
+  weekly_report_enabled: z.boolean().optional(),
+  monthly_report_enabled: z.boolean().optional(),
+  report_hour: z.int().min(0).max(23).optional(),
+  report_target: z.literal("owner").optional(),
+});
+
+export const InviteBody = z.object({ role: z.enum(["admin", "staff"]) });
+
+export const UserPatchBody = z
+  .object({ role: z.enum(["admin", "staff"]).optional(), is_active: z.boolean().optional() })
+  .refine((v) => v.role !== undefined || v.is_active !== undefined, "Tidak ada perubahan");

@@ -21,6 +21,7 @@ export function botCommands(_flags: CommandFlags): BotCommand[] {
     { command: "export", description: "Kirim file CSV laporan (default bulan ini)" },
     { command: "akun", description: "Daftar & tambah akun kas" },
     { command: "user", description: "Kelola user & undangan (owner)" },
+    { command: "jadwal", description: "Laporan otomatis: lihat & pilih tujuan (owner)" },
     { command: "app", description: "Buka aplikasi" },
     { command: "start", description: "Mulai" },
   ];

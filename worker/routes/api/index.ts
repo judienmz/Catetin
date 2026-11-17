@@ -5,9 +5,9 @@ import { AppError } from "../../lib/errors";
 import { wibDate } from "../../lib/date";
 import { validateInitData } from "../../auth/initData";
 import { issueSession } from "../../auth/session";
-import { AccountCreateBody, AccountPatchBody, AuthBody, CategoryCreateBody, CategoryPatchBody, ChannelBody, CashCreateBody, CashListQuery, ListQuery, PeriodQuery, ProductCreateBody, ProductPatchBody, SaleCreateBody, TransferBody, VoidBody } from "../../../shared/schemas";
-import { getSessionSecret, getSetting } from "../../services/settings";
-import { findActiveUser } from "../../services/users";
+import { InviteBody, SettingsPatchBody, UserPatchBody, AccountCreateBody, AccountPatchBody, AuthBody, CategoryCreateBody, CategoryPatchBody, ChannelBody, CashCreateBody, CashListQuery, ListQuery, PeriodQuery, ProductCreateBody, ProductPatchBody, SaleCreateBody, TransferBody, VoidBody } from "../../../shared/schemas";
+import { getAppSettings, getSessionSecret, getSetting, updateAppSettings, type SettingsPatch } from "../../services/settings";
+import { createInvite, findActiveUser, listUsers, updateUser } from "../../services/users";
 import { getFeatures } from "../../services/features";
 import {
   accountBalances,
@@ -23,7 +23,7 @@ import { createProduct, listProducts, updateProduct } from "../../services/produ
 import { cashflow, daily, itemsSold, profitLoss, summary } from "../../services/reports";
 import { sendExport } from "../../bot/commands/reports";
 import { addAccount, createCategory, createChannel, deleteAccount, deleteCategory, deleteChannel, listChannels, updateAccount, updateCategory, updateChannel } from "../../services/masters";
-import { ok, parseBody, parseQuery, requireAdmin, requireSession, resolvePeriod, telegramApi, type ApiEnv } from "./util";
+import { ok, parseBody, parseQuery, requireAdmin, requireOwner, requireSession, resolvePeriod, telegramApi, type ApiEnv } from "./util";
 
 export const apiRoutes = new Hono<ApiEnv>();
 
@@ -287,6 +287,48 @@ api.patch("/channels/:id", async (c) => {
 api.delete("/channels/:id", async (c) => {
   await deleteChannel(c.env.DB, idParam(c), c.var.actor);
   return ok(c, { deleted: true });
+});
+
+// --- Pengaturan usaha & user ---------------------------------------------------
+
+api.get("/settings", async (c) => {
+  requireAdmin(c);
+  return ok(c, await getAppSettings(c.env.DB));
+});
+
+api.patch("/settings", async (c) => {
+  const b = await parseBody(c, SettingsPatchBody);
+  const patch: SettingsPatch = {};
+  if (b.business_name !== undefined) patch.business_name = b.business_name;
+  if (b.daily_report_enabled !== undefined) patch.daily_report_enabled = b.daily_report_enabled;
+  if (b.weekly_report_enabled !== undefined) patch.weekly_report_enabled = b.weekly_report_enabled;
+  if (b.monthly_report_enabled !== undefined) patch.monthly_report_enabled = b.monthly_report_enabled;
+  if (b.report_hour !== undefined) patch.report_hour = b.report_hour;
+  if (b.report_target !== undefined) patch.report_target = b.report_target;
+  return ok(c, await updateAppSettings(c.env.DB, patch, c.var.actor));
+});
+
+api.get("/users", async (c) => {
+  requireOwner(c);
+  return ok(c, await listUsers(c.env.DB));
+});
+
+api.post("/users/invite", async (c) => {
+  const b = await parseBody(c, InviteBody);
+  const inv = await createInvite(c.env.DB, b.role, c.var.actor);
+  const raw = await getSetting(c.env.DB, "bot_info");
+  const username = raw ? (JSON.parse(raw) as { username?: string }).username : undefined;
+  if (!username) throw new AppError("NO_BOT_INFO", "Info bot belum ada. Jalankan /setup dulu.", 409);
+  return ok(c, { link: `https://t.me/${username}?start=join_${inv.code}`, role: inv.role, expires_at: inv.expires_at }, 201);
+});
+
+api.patch("/users/:id", async (c) => {
+  const b = await parseBody(c, UserPatchBody);
+  if (Number(c.req.param("id")) === c.var.user.id) throw new AppError("SELF", "Tidak bisa mengubah akun sendiri.", 409);
+  return ok(
+    c,
+    await updateUser(c.env.DB, Number(c.req.param("id")), { ...(b.role !== undefined ? { role: b.role } : {}), ...(b.is_active !== undefined ? { isActive: b.is_active } : {}) }, c.var.actor),
+  );
 });
 
 apiRoutes.route("/", api);

@@ -10,6 +10,7 @@ import { registerSales } from "./commands/sales";
 import { registerProducts } from "./commands/products";
 import { registerUsers } from "./commands/users";
 import { registerReports } from "./commands/reports";
+import { registerSchedule } from "./commands/schedule";
 import { registerAccounts } from "./commands/accounts";
 
 export interface BotContextExtra {
@@ -77,6 +78,7 @@ export function createBot(opts: CreateBotOptions): Bot<BotContext> {
   registerAccounts(bot);
   registerUsers(bot);
   registerReports(bot);
+  registerSchedule(bot);
 
   bot.catch(async (err) => {
     console.error("bot error", err.error);

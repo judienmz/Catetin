@@ -205,3 +205,47 @@ describe("REST API", () => {
     expect(await getSessionSecret(env)).toBe(await getSessionSecret(env));
   });
 });
+
+describe("REST API: pengaturan & user", () => {
+  useFreshDb();
+  let ownerToken = "";
+  let adminToken = "";
+
+  beforeEach(async () => {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO users (telegram_id, full_name, role) VALUES (111, 'Budi', 'owner')"),
+      env.DB.prepare("INSERT INTO users (telegram_id, full_name, role) VALUES (222, 'Ani', 'admin')"),
+      env.DB.prepare("INSERT INTO users (telegram_id, full_name, role) VALUES (333, 'Sari', 'staff')"),
+      env.DB.prepare("INSERT INTO settings (key, value) VALUES ('bot_info', ?1)").bind(JSON.stringify({ username: "finbot_test_bot" })),
+    ]);
+    ownerToken = await login(111);
+    adminToken = await login(222);
+  });
+
+  it("nama usaha: owner bisa ganti, meta ikut berubah; admin hanya bisa baca", async () => {
+    const r = await call("PATCH", "/api/settings", ownerToken, { business_name: "Toko Sehat", report_hour: 20, weekly_report_enabled: false });
+    expect(r.json.data).toMatchObject({ business_name: "Toko Sehat", report_hour: 20, weekly_report_enabled: false });
+    expect((await call("GET", "/api/meta", ownerToken)).json.data.business_name).toBe("Toko Sehat");
+    expect((await call("GET", "/api/settings", adminToken)).json.data.business_name).toBe("Toko Sehat");
+    expect((await call("PATCH", "/api/settings", adminToken, { business_name: "X" })).status).toBe(403);
+    expect((await call("PATCH", "/api/settings", ownerToken, { report_hour: 30 })).status).toBe(400);
+  });
+
+  it("user: daftar & undangan (owner), ubah peran / nonaktif; tidak bisa ubah diri sendiri", async () => {
+    expect((await call("GET", "/api/users", adminToken)).status).toBe(403);
+    const list = await call("GET", "/api/users", ownerToken);
+    expect(list.json.data.map((u: { full_name: string }) => u.full_name)).toEqual(["Budi", "Ani", "Sari"]);
+
+    const inv = await call("POST", "/api/users/invite", ownerToken, { role: "staff" });
+    expect(inv.json.data.link).toMatch(/^https:\/\/t\.me\/finbot_test_bot\?start=join_[0-9a-f]{24}$/);
+
+    const sari = list.json.data.find((u: { full_name: string }) => u.full_name === "Sari");
+    const up = await call("PATCH", `/api/users/${sari.id}`, ownerToken, { role: "admin" });
+    expect(up.json.data.role).toBe("admin");
+    const off = await call("PATCH", `/api/users/${sari.id}`, ownerToken, { is_active: false });
+    expect(off.json.data.is_active).toBe(0);
+
+    const me = list.json.data.find((u: { full_name: string }) => u.full_name === "Budi");
+    expect((await call("PATCH", `/api/users/${me.id}`, ownerToken, { role: "staff" })).status).toBe(409);
+  });
+});

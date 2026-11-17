@@ -274,4 +274,28 @@ export const api = {
   createChannel: (name: string) => req<Channel>("POST", "/channels", { name }),
   updateChannel: (id: number, name: string) => req<Channel>("PATCH", `/channels/${id}`, { name }),
   deleteChannel: (id: number) => req<unknown>("DELETE", `/channels/${id}`),
+  settings: () => req<AppSettings>("GET", "/settings"),
+  updateSettings: (b: Partial<Omit<AppSettings, "report_target">> & { report_target?: "owner" }) => req<AppSettings>("PATCH", "/settings", b),
+  users: () => req<UserRow[]>("GET", "/users"),
+  invite: (role: "admin" | "staff") => req<{ link: string; expires_at: string }>("POST", "/users/invite", { role }),
+  updateUser: (id: number, b: { role?: "admin" | "staff"; is_active?: boolean }) => req<UserRow>("PATCH", `/users/${id}`, b),
 };
+
+export interface AppSettings {
+  business_name: string;
+  daily_report_enabled: boolean;
+  weekly_report_enabled: boolean;
+  monthly_report_enabled: boolean;
+  report_hour: number;
+  report_target: { type: "owner" | "group"; chatId: number | null; title: string | null };
+}
+
+export interface UserRow {
+  id: number;
+  telegram_id: number;
+  username: string | null;
+  full_name: string;
+  role: Role;
+  is_active: number;
+}
+
