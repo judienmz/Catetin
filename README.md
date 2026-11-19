@@ -71,6 +71,17 @@ Buka Mini App, tekan ⚙ di Beranda:
 - **Laporan otomatis**: pilih jam kirim.
 - **Modul stok**: nyalakan kalau perlu melacak stok barang.
 
+### 6. Pasang tombol update (sekali saja, ±2 menit)
+
+Saat menyalin repo, Cloudflare **tidak ikut menyalin folder `.github`**, jadi tombol update belum ada di repo-mu. Tambahkan sekali:
+
+1. Buka repo milikmu di GitHub (yang dibuat Cloudflare saat deploy) → **Add file → Create new file**.
+2. Nama file, ketik persis: `.github/workflows/sync-upstream.yml`
+3. Buka [sync-upstream.yml di repo Catetin](https://github.com/judienmz/Catetin/blob/main/.github/workflows/sync-upstream.yml), tekan ikon **Copy raw file** (kanan atas), lalu tempel ke isi file baru.
+4. Tekan **Commit changes**. Cloudflare akan deploy ulang otomatis (aman, datamu tidak tersentuh).
+
+Setelah ini, tab **Actions** punya **Ambil update Catetin** untuk mengambil versi baru kapan saja.
+
 ---
 
 ## Pakai bersama tim
@@ -111,6 +122,7 @@ Setiap input menampilkan ringkasan dulu dengan tombol **Simpan / Batal**. Setela
 
 1. Buka repo Catetin **milikmu** di GitHub (yang dibuat Cloudflare saat deploy).
 2. Tab **Actions** → pilih **Ambil update Catetin** → **Run workflow** → **Run workflow**.
+   - Tidak ada **Ambil update Catetin**? Pasang dulu sekali (lihat [langkah 6](#6-pasang-tombol-update-sekali-saja-2-menit)).
    - Pertama kali, GitHub mungkin meminta kamu mengaktifkan Actions. Klik tombol hijau untuk mengizinkan.
 3. Tunggu sampai centang hijau. Cloudflare akan deploy ulang otomatis dalam 1–2 menit.
 4. Buka `https://<alamat-worker>/setup` dan jalankan setup sekali lagi (supaya database ikut diperbarui).
