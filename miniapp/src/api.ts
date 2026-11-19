@@ -260,6 +260,7 @@ export const api = {
   products: (q?: string) => req<Product[]>("GET", `/products${qs({ q })}`),
   createProduct: (b: ProductInput & { opening_stock?: number }) => req<Product>("POST", "/products", b),
   updateProduct: (id: number, b: Partial<ProductInput>) => req<Product>("PATCH", `/products/${id}`, b),
+  deleteProduct: (id: number) => req<unknown>("DELETE", `/products/${id}`),
   setStock: (id: number, actual: number, note: string | null) => req<{ product: Product; change: number }>("POST", `/products/${id}/stock`, { actual, note }),
   movements: (id: number) => req<StockMovement[]>("GET", `/products/${id}/movements`),
   purchases: (q: { from: string; to: string; page?: number }) => req<Page<PurchaseRow>>("GET", `/purchases${qs(q)}`),

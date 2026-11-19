@@ -19,7 +19,7 @@ import {
   voidCashTransaction,
 } from "../../services/cash";
 import { createSale, getSale, listSales, voidSale } from "../../services/sales";
-import { createProduct, listProducts, updateProduct } from "../../services/products";
+import { createProduct, deleteProduct, listProducts, updateProduct } from "../../services/products";
 import { cashByAccount, cashflow, daily, itemsSold, profitLoss, summary } from "../../services/reports";
 import { sendExport } from "../../bot/commands/reports";
 import { botCommands } from "../../bot/commands/list";
@@ -226,6 +226,12 @@ api.patch("/products/:id", async (c) => {
       c.var.actor,
     ),
   );
+});
+
+api.delete("/products/:id", async (c) => {
+  requireAdmin(c);
+  await deleteProduct(c.env.DB, Number(c.req.param("id")), c.var.actor);
+  return ok(c, { deleted: true });
 });
 
 // --- Modul stok ----------------------------------------------------------------
